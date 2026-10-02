@@ -27,7 +27,19 @@ router.get('/', async(req,res) =>{
 
 router.post('/', upload.single('before_photo'), async (req, res) => {
   try {
+
+    console.log("BODY:", req.body);
+    console.log("FILE:", req.file);
+
     const { description, longitude, latitude } = req.body;
+    
+    if (!req.file) {
+        return res.status(400).json({
+        success: false,
+        message: "Before photo was not received"
+    });
+    }
+
 
     let before_photo_url = null;
 
