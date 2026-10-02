@@ -12,7 +12,7 @@ router.post('/register', async(req,res) => {
     try{
         const {full_name,email,phone_number,role,password} = req.body
 
-        if(!email || !phone_number){
+        if(!email && !phone_number){
             return res.status(404).json({
                 success: false,
                 message: "Either one of the email or phone number must be present."
@@ -49,7 +49,15 @@ router.post('/login', async(req,res) => {
 
         const uniqe_identifier = email || phone_number
 
-        const userInput = await pool.query('SELECT * FROM users WHERE email = $1 OR phone_number = $1', [uniqe_identifier])
+        // Used a LEFT JOIN to fetch the ward_id if the user is a Councillor
+        const query = `
+            SELECT u.*, w.ward_id 
+            FROM users u
+            LEFT JOIN wards w ON w.councillor_id = u.user_id
+            WHERE u.email = $1 OR u.phone_number = $1
+        `;
+        
+        const userInput = await pool.query(query, [uniqe_identifier])
 
         if(userInput.rows.length === 0){
             return res.status(401).json({
@@ -69,13 +77,16 @@ router.post('/login', async(req,res) => {
             })
         }
 
+        // Added ward_id as the frontend required that
         const tokeninfo = {
             user_id: user.user_id,
-            role: user.role
+            role: user.role,
+            ward_id: user.ward_id || null
         }
 
-        const token = jsonwebtoken.sign(tokeninfo,process.env.Jeson_Web_Token, {expiresIn: '1d'})
+        const token = jsonwebtoken.sign(tokeninfo, process.env.Jeson_Web_Token, {expiresIn: '1d'})
 
+        // Added ward_id in the response as per the frontend requirements
         res.status(200).json({
             success: true,
             message: "Successfully Logged In",
@@ -83,11 +94,13 @@ router.post('/login', async(req,res) => {
             user: {
                 user_id: user.user_id,
                 full_name: user.full_name,
-                role: user.role
+                role: user.role,
+                ward_id: user.ward_id || null
             }
         })
     }
     catch(error){
+        console.error("Login Error: ", error.message)
         res.status(500).json({
             success: false,
             message: "Failed to log in"
@@ -152,26 +165,42 @@ router.post('/create-staff', verify, authorization('Master Admin'), async (req, 
         const saltRounds = 12
         const password_hash = await bcrypt.hash(password, saltRounds)
 
+        // removed ward_id from the SQL and the array
         const newStaff = await pool.query(
-            `INSERT INTO users (full_name, email, phone_number, role, password_hash, ward_id, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6,NOW())
-            RETURNING user_id, full_name, email, phone_number, role, ward_id`,
-            [full_name, email, phone_number, role, password_hash, role === 'Councillor' ? ward_id : null]
+            `INSERT INTO users (full_name, email, phone_number, role, password_hash, created_at)
+            VALUES ($1,$2,$3,$4,$5,NOW())
+            RETURNING user_id, full_name, email, phone_number, role`,
+            [full_name, email || null, phone_number || null, role, password_hash]
         )
+
+        const user = newStaff.rows[0];
+
+        // if it's a Councillor, linked them in the wards table
+        if (role === 'Councillor' && ward_id) {
+            await pool.query(
+                `UPDATE wards SET councillor_id = $1 WHERE ward_id = $2`,
+                [user.user_id, ward_id]
+            );
+            user.ward_id = ward_id; // attached this to the response towards the frontend
+        } else {
+            user.ward_id = null; 
+        }
 
         res.status(201).json({
             success: true,
             message: `${role} account created successfully`,
-            data: newStaff.rows[0]
+            data: user // matched the response with the frontend's requirement
         })
     } catch (error) {
-        console.error("Error occured while creating staff account ", error.message)
+        console.error("Error occurred while creating staff account: ", error.message)
         res.status(500).json({
             success: false,
-            message: "Error occured while creating staff account"
+            message: "Error occurred while creating staff account"
         })
     }
 })
 
+
+// bcrypt.hash("123456", 12).then(console.log);
 
 module.exports = router;
