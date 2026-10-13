@@ -1,68 +1,158 @@
-const fs = require('fs')
-const pool = require('./config/db')
+const fs = require("fs");
+const pool = require("./config/db");
 
-async function seedsWards(){
-    try{
-        const rawData = fs.readFileSync('./dhaka_wards.geojson', 'utf-8')
-        const geojsonData = JSON.parse(rawData) 
+async function seedWards() {
+  try {
+    const rawData = fs.readFileSync("./dhaka_wards.geojson", "utf-8");
+    const geojsonData = JSON.parse(rawData);
 
-        console.log(`Found ${geojsonData.features.length} features. Starting database injection...`);
+    console.log(
+      `Found ${geojsonData.features.length} features. Starting ward import...`
+    );
 
-        let insertionCount = 0
-        let fallbackNumber = 1000;
+    let inserted = 0;
+    let skipped = 0;
 
-        for(const feature of geojsonData.features){
-            const props = feature.properties || {}
-            let wardNumber = null
-            const rawWardNo = props.ward_no || props.WARD_NO;
+    for (const feature of geojsonData.features) {
+      const props = feature.properties || {};
 
-            if (rawWardNo) {
-                wardNumber = parseInt(rawWardNo, 10);
-            }
+      // Try common ward-number property names
+      const rawWardNumber =
+        props.ward_number ??
+        props.ward_no ??
+        props.WARD_NO ??
+        props.WARD ??
+        props.Ward ??
+        null;
 
-            else if (props.name) {
-                const match = props.name.match(/\d+/); 
-                if (match) {
-                    wardNumber = parseInt(match[0], 10);
-                }
-            }
+      let wardNumber = null;
 
-            if (!wardNumber) {
-                wardNumber = fallbackNumber;
-                fallbackNumber++;
-            }
+      if (rawWardNumber !== null) {
+        const match = String(rawWardNumber).match(/\d+/);
 
-            if(!feature.geometry) {
-                console.log(`Skipping Area ${props.name}: Missing geometry definition.`);
-                continue;
-            }
+        if (match) {
+          wardNumber = Number(match[0]);
+        }
+      }
 
-            const geometryType = feature.geometry.type
-            if(geometryType != 'Polygon' && geometryType != 'MultiPolygon'){
-                continue;
-            }
-            
-            const geometryString = JSON.stringify(feature.geometry)
+      // Try common corporation fields
+      let corporationCode =
+        props.corporation_code ??
+        props.corp_code ??
+        props.CORPORATION ??
+        props.city_corporation ??
+        null;
 
-            const query = `
-                    INSERT INTO wards (ward_number, boundaries)
-                    VALUES ($1, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326)))
-                    ON CONFLICT (ward_number) DO NOTHING
-                `;
+      // If source uses descriptive names
+      const adminName = String(
+        props.Admin_Name ??
+        props.admin_name ??
+        props.corporation ??
+        ""
+      ).toLowerCase();
 
-            await pool.query(query, [wardNumber,geometryString])
-            insertionCount++
-            console.log(`Inserted Ward: ${wardNumber}`)
+      if (!corporationCode) {
+        if (
+          adminName.includes("north") ||
+          adminName.includes("dncc") ||
+          adminName.includes("উত্তর")
+        ) {
+          corporationCode = "DNCC";
+        } else if (
+          adminName.includes("south") ||
+          adminName.includes("dscc") ||
+          adminName.includes("দক্ষিণ")
+        ) {
+          corporationCode = "DSCC";
+        }
+      }
 
-            }            
+      corporationCode = corporationCode
+        ? String(corporationCode).toUpperCase()
+        : null;
 
-        console.log(`Data seeded in the database. Total Number ${insertionCount}`);
-    }catch(error){
-        console.error("Error during Seeding: ",error.message)
+      if (!wardNumber) {
+        console.log("Skipped feature: missing valid ward number");
+        skipped++;
+        continue;
+      }
+
+      if (!["DNCC", "DSCC"].includes(corporationCode)) {
+        console.log(
+          `Skipped Ward ${wardNumber}: corporation could not be identified`
+        );
+        skipped++;
+        continue;
+      }
+
+      if (!feature.geometry) {
+        console.log(
+          `Skipped ${corporationCode} Ward ${wardNumber}: missing geometry`
+        );
+        skipped++;
+        continue;
+      }
+
+      if (
+        feature.geometry.type !== "Polygon" &&
+        feature.geometry.type !== "MultiPolygon"
+      ) {
+        console.log(
+          `Skipped ${corporationCode} Ward ${wardNumber}: invalid geometry type`
+        );
+        skipped++;
+        continue;
+      }
+
+      const geometryString = JSON.stringify(feature.geometry);
+
+      const query = `
+        INSERT INTO wards
+        (
+          corporation_code,
+          ward_number,
+          boundaries
+        )
+        VALUES
+        (
+          $1,
+          $2,
+          ST_Multi(
+            ST_SetSRID(
+              ST_GeomFromGeoJSON($3::text),
+              4326
+            )
+          )
+        )
+        ON CONFLICT (corporation_code, ward_number)
+        DO NOTHING
+      `;
+
+      const result = await pool.query(query, [
+        corporationCode,
+        wardNumber,
+        geometryString,
+      ]);
+
+      if (result.rowCount === 1) {
+        inserted++;
+
+        console.log(
+          `Inserted ${corporationCode} Ward ${wardNumber}`
+        );
+      }
     }
-    finally{
-        pool.end()
-    }
+
+    console.log("----------------------------");
+    console.log(`Inserted: ${inserted}`);
+    console.log(`Skipped: ${skipped}`);
+    console.log("----------------------------");
+
+  } catch (error) {
+    console.error("Ward seeding error:", error);
+  } finally {
+    await pool.end();
+  }
 }
 
-seedsWards();
+seedWards();

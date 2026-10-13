@@ -40,6 +40,13 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
     });
     }
 
+    if (!longitude || !latitude) {
+    return res.status(400).json({
+        success: false,
+        message: "Location is required"
+    });
+    }
+
 
     let before_photo_url = null;
 
@@ -54,20 +61,52 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
     before_photo_url = result.secure_url;
     }
 
+    const wardResult = await pool.query(
+        `
+        SELECT ward_id, ward_number, corporation_code
+        FROM wards
+        WHERE ST_Covers(
+            boundaries,
+            ST_SetSRID(
+            ST_MakePoint($1::float, $2::float),
+            4326
+            )
+        )
+        LIMIT 1
+        `,
+        [longitude, latitude]
+        );
+
+        let detectedWardId = null;
+
+        if (wardResult.rowCount > 0) {
+        detectedWardId = wardResult.rows[0].ward_id;
+
+        console.log(
+            "Ward detected:",
+            wardResult.rows[0].corporation_code,
+            "Ward",
+            wardResult.rows[0].ward_number
+        );
+        } else {
+        console.log("No ward found for submitted GPS location");
+        }
+
     const newReport = await pool.query(
-      `INSERT INTO reports
-      (description, location, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at)
-      VALUES (
-        $1,
-        CASE
-          WHEN $2::float IS NOT NULL AND $3::float IS NOT NULL
-          THEN ST_SetSRID(ST_MakePoint($2::float,$3::float),4326)
-          ELSE NULL
-        END,
-        NULL, $4, NULL, 'Pending', NOW(), NOW()
-      )
-      RETURNING *`,
-      [description, longitude, latitude, before_photo_url]
+    `
+    INSERT INTO reports
+    (description, location, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at)
+    VALUES
+    ($1, ST_SetSRID(ST_MakePoint($2::float, $3::float),4326),$4,$5,NULL,'Pending',NOW(),NOW())
+    RETURNING *
+    `,
+    [
+        description,
+        longitude,
+        latitude,
+        detectedWardId,
+        before_photo_url
+    ]
     );
 
     res.status(201).json({
@@ -85,72 +124,323 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
   }
 });
 
-router.patch('/:id', verify, authorization('Inspector'), async(req,res) => {
-    try{
-        const { id } = req.params;
-        const { after_photo_url } = req.body;
-        const updateReport = await pool.query(
-            `UPDATE reports SET after_photo_url = $1, status = 'Pending Verification', updated_at = NOW()
-            WHERE report_id = $2 RETURNING *
-            `,
-            [after_photo_url,id]
+
+router.get(
+  '/councillor',
+  verify,
+  authorization('Councillor'),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `
+        SELECT
+          r.*,
+          ST_Y(r.location) AS latitude,
+          ST_X(r.location) AS longitude,
+          w.ward_number,
+          w.corporation_code
+        FROM reports r
+        JOIN wards w ON w.ward_id = r.ward_id
+        WHERE w.councillor_id = $1
+        ORDER BY r.created_at DESC
+        `,
+        [req.user.user_id]
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: result.rows
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to load councillor complaints'
+      });
+    }
+  }
+);
+
+router.get(
+  '/:id',
+  verify,
+  authorization('Councillor', 'Inspector'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const result = await pool.query(
+        `
+      SELECT
+        r.*,
+
+        -- Citizen complaint location
+        ST_Y(r.location) AS latitude,
+        ST_X(r.location) AS longitude,
+
+        -- Inspector cleanup location
+        ST_Y(r.cleanup_location) AS cleanup_latitude,
+        ST_X(r.cleanup_location) AS cleanup_longitude,
+
+        -- Straight-line distance between Citizen GPS
+        -- and Inspector cleanup GPS, in meters
+        ROUND(
+          ST_Distance(
+            r.location::geography,
+            r.cleanup_location::geography
+          )::numeric,
+          1
+        ) AS cleanup_distance_meters,
+
+        w.ward_number,
+        w.corporation_code
+        FROM reports r
+        JOIN wards w ON w.ward_id = r.ward_id
+        WHERE r.report_id = $1
+        AND (
+            (
+            $2 = 'Councillor'
+            AND w.councillor_id = $3
+            )
+            OR
+            (
+            $2 = 'Inspector'
+            AND r.assigned_inspector_id = $3
+            )
         )
-        if(updateReport.rowCount === 0 ){
-            return res.status(404).json({
-                success: false,
-                message: "Couldn't find the previously existing report"
-            })
-        }
-        res.status(200).json({
-            success: true, 
-            message: "Hazard cleanup image received", 
-            data: updateReport.rows[0]
-        })
-    }catch(error){
-        res.status(500).json({
-            success: false,
-            message: "Didn't receive the Hazard cleanup image"
-        })
+        LIMIT 1
+        `,
+        [id, req.user.role ,req.user.user_id]
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Complaint not found in your ward'
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: result.rows[0]
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to load complaint'
+      });
     }
-});
+  }
+);
 
-router.patch('/:id/assign', verify, authorization('Councillor'), async(req,res) => {
-    try{
-        const { id } = req.params 
-        const { inspector_id } = req.body
 
-        if(!inspector_id){
-            return res.status(403).json({
-                success: false,
-                message: "You must provide your ID"
-            })
+router.patch( '/:id', verify, authorization('Inspector'), upload.single('after_photo'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const inspectorId = req.user.user_id;
+
+      const latitude = Number(req.body.latitude);
+      const longitude = Number(req.body.longitude);
+
+      // 1. After-photo is required
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cleanup photo is required'
+        });
+      }
+
+      // 2. Make sure uploaded file is actually an image
+      if (!req.file.mimetype?.startsWith('image/')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Uploaded cleanup evidence must be an image'
+        });
+      }
+
+      // 3. GPS is required
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid cleanup GPS location is required'
+        });
+      }
+
+      // 4. Make sure this complaint is actually assigned
+      //    to the currently logged-in Inspector
+      const assignedReport = await pool.query(
+        `
+        SELECT report_id, status FROM reports
+        WHERE report_id = $1
+          AND assigned_inspector_id = $2
+        LIMIT 1
+        `,
+        [id, inspectorId]
+      );
+
+      if (assignedReport.rowCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Assigned complaint not found'
+        });
+      }
+
+      if (assignedReport.rows[0].status !== 'Assigned') {
+        return res.status(409).json({
+          success: false,
+          message: 'Cleanup evidence can only be submitted for an assigned complaint'
+        });
+      }
+
+      // 5. Upload AFTER photo to Cloudinary
+      const cloudinaryResult = await cloudinary.uploader.upload(
+        `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
+        {
+          folder: 'hazard_reports/cleanup_evidence',
+          resource_type: 'image'
         }
+      );
 
-        const allowreport = await pool.query(
-            `UPDATE reports SET assigned_inspector_id = $1, status = 'Assigned', updated_at = NOW()
-            where report_id = $2 AND status IN ('Pending','Re-assigned') RETURNING *`, 
-            [inspector_id,id]
-        )  // added the re-assigned option for the Councillor
+      // 6. Save Cloudinary URL + cleanup GPS + timestamp
+      //    and move complaint to Pending Verification
+      const updateReport = await pool.query(
+        `
+        UPDATE reports
+        SET
+          after_photo_url = $1,
+          cleanup_location = ST_SetSRID(
+            ST_MakePoint($2::float, $3::float),
+            4326
+          ),
+          cleanup_submitted_at = NOW(),
+          status = 'Pending Verification',
+          updated_at = NOW()
+        WHERE report_id = $4
+          AND assigned_inspector_id = $5
+          AND status = 'Assigned'
+        RETURNING *
+        `,
+        [
+          cloudinaryResult.secure_url,
+          longitude,
+          latitude,
+          id,
+          inspectorId
+        ]
+      );
 
-        if(allowreport.rowCount === 0){
-            return res.status(404).json({
-                success: false,
-                message: "No previously report found"
-            })
-        }
+      if (updateReport.rowCount === 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Complaint could not be updated'
+        });
+      }
 
-        res.status(200).json({
-            success: true,
-            message: "Task Assigned successfully",
-            data: allowreport.rows[0]
-        })
-    }catch(error){
-        res.status(500).json({
-            success: false,
-            message: "Error Occured"
-        })
+      return res.status(200).json({
+        success: true,
+        message: 'Cleanup evidence submitted successfully',
+        data: updateReport.rows[0]
+      });
+
+    } catch (error) {
+      console.error('Cleanup evidence submission error:', error);
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to submit cleanup evidence'
+      });
     }
-})
+  }
+);
+
+router.patch(
+  '/:id/assign', verify, authorization('Councillor'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { inspector_id } = req.body;
+
+      if (!inspector_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Inspector ID is required'
+        });
+      }
+
+      // Make sure selected user is actually an Inspector
+      const inspector = await pool.query(
+        `
+        SELECT user_id FROM users WHERE user_id = $1 AND role = 'Inspector'
+        `,
+        [inspector_id]
+      );
+
+      if (inspector.rowCount === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid Inspector'
+        });
+      }
+
+      // Assign ONLY if complaint belongs to this Councillor's ward
+      const result = await pool.query(
+        `
+        UPDATE reports AS r
+        SET
+          assigned_inspector_id = $1, status = 'Assigned', updated_at = NOW()
+        WHERE r.report_id = $2
+          AND r.status IN ('Pending', 'Re-assigned')
+          AND EXISTS (
+            SELECT 1 
+            FROM wards w
+            WHERE w.ward_id = r.ward_id
+              AND w.councillor_id = $3
+          )
+        RETURNING r.*
+        `,
+        [
+          inspector_id,
+          id,
+          req.user.user_id
+        ]
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Complaint not found in your ward or cannot be assigned'
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Inspector assigned successfully',
+        data: result.rows[0]
+      });
+
+    } catch (error) {
+      console.error('Assignment error:', error);
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to assign Inspector'
+      });
+    }
+  }
+);
 
 router.patch('/:id/verify', verify, authorization('Councillor', 'Master Admin'), async (req, res) => {
     try {
