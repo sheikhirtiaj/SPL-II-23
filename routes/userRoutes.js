@@ -8,40 +8,85 @@ const authorization = require('../middleware/rolemiddleware')
 
 const router = express.Router()
 
-router.post('/register', async(req,res) => {
-    try{
-        const {full_name,email,phone_number,role,password} = req.body
 
-        if(!email && !phone_number){
-            return res.status(404).json({
-                success: false,
-                message: "Either one of the email or phone number must be present."
-            })
-        }
+router.post('/register', async (req, res) => {
+  try {
+    const {
+      full_name, email, phone_number, password
+    } = req.body;
 
-        const saltRounds = 12
-        const password_hash = await bcrypt.hash(password, saltRounds)
+    const name = typeof full_name === 'string'
+      ? full_name.trim() : '';
 
-        const newUser = await pool.query(
-            `INSERT INTO users (full_name, email, phone_number, role, password_hash, created_at)
-            VALUES($1,$2,$3,$4,$5,NOW())
-            RETURNING user_id, full_name, email, role`,
-            [full_name,email || null,phone_number || null,role,password_hash]
-        )
+    const cleanEmail = typeof email === 'string'
+      ? email.trim() : '';
 
-        res.status(201).json({
-            success: true,
-            message: "User registration completed",
-            data: newUser.rows[0]
-        })
+    const cleanPhone = typeof phone_number === 'string'
+      ? phone_number.trim() : '';
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name is required'
+      });
     }
-    catch(error){
-        res.status(500).json({
-            success: false,
-            message: "Error occuresd while saving user info"
-        })
+
+    if (!cleanEmail && !cleanPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone number is required'
+      });
     }
-})
+
+    if (typeof password !== 'string' ||
+        password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must have at least 6 characters'
+      });
+    }
+
+    const password_hash = await bcrypt.hash(password, 12);
+
+    // Public registration ALWAYS creates a Citizen.
+    // Never trust a role supplied by the client.
+    const result = await pool.query(
+      `INSERT INTO users
+        (full_name, email, phone_number,
+         role, password_hash, created_at)
+       VALUES ($1, $2, $3, 'Citizen', $4, NOW())
+       RETURNING user_id, full_name, email, role`,
+      [
+        name,
+        cleanEmail || null,
+        cleanPhone || null,
+        password_hash
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'User registration completed',
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        message: 'Email or phone number already registered'
+      });
+    }
+
+    console.error('Registration Error:', error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to register user'
+    });
+  }
+});
+
 
 router.post('/login', async(req,res) => {
     try{

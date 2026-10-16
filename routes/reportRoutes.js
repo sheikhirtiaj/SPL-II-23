@@ -7,23 +7,70 @@ const authorization = require('../middleware/rolemiddleware')
 const cloudinary = require('../config/cloudinary');
 const upload = require('../middleware/upload');
 
-router.get('/', async(req,res) =>{
-    try{
-        const total_reports = await pool.query('select * from reports')
 
-        res.status(200).json({
+router.get('/', verify, async (req, res) => {
+    try {
+        const { role, user_id } = req.user;
+
+        let query;
+        let params = [];
+
+        if (role === 'Master Admin') {
+
+            query = `
+                SELECT * FROM report ORDER BY created_at DESC`;
+
+        } else if (role === 'Councillor') {
+
+            query = `
+                SELECT r.* FROM reports r
+                JOIN wards w ON r.ward_id = w.ward_id WHERE w.councillor_id = $1 ORDER BY r.created_at DESC
+            `;
+            params = [user_id];
+
+        } else if (role === 'Inspector') {
+            query = `
+                SELECT r.* FROM reports r
+                WHERE r.assigned_inspector_id = $1 ORDER BY r.created_at DESC
+            `;
+            params = [user_id];
+
+        } else if (role === 'Citizen') {
+            // Return only public complaint fields.
+            query = `
+                SELECT
+                    report_id, description, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at
+                FROM reports
+                ORDER BY created_at DESC
+            `;
+        } else {
+            return res.status(403).json({
+                success: false,
+                message: 'Access Denied'
+            });
+        }
+
+        const result = await pool.query(query, params);
+
+        return res.status(200).json({
             success: true,
-            count: total_reports.rowCount,
-            data: total_reports.rows
-        })
-    }catch(error){
-        console.error("Error catched while fetching reports ", error.message)
-        res.status(500).json({
+            count: result.rowCount,
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error(
+            'Error fetching reports:',
+            error.message
+        );
+
+        return res.status(500).json({
             success: false,
-            message: "Failed to get the reports"
-        })
+            message: 'Failed to get the reports'
+        });
     }
 });
+
 
 router.post('/', upload.single('before_photo'), async (req, res) => {
   try {
@@ -101,11 +148,7 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
     RETURNING *
     `,
     [
-        description,
-        longitude,
-        latitude,
-        detectedWardId,
-        before_photo_url
+        description, longitude, latitude, detectedWardId, before_photo_url
     ]
     );
 
@@ -381,12 +424,15 @@ router.patch(
       }
 
       // Make sure selected user is actually an Inspector
+
       const inspector = await pool.query(
-        `
-        SELECT user_id FROM users WHERE user_id = $1 AND role = 'Inspector'
-        `,
-        [inspector_id]
+          `
+          SELECT u.user_id FROM users u
+          JOIN wards w ON w.ward_id = u.ward_id WHERE u.user_id = $1 AND u.role = 'Inspector' AND w.councillor_id = $2
+          `,
+          [inspector_id, req.user.user_id]
       );
+
 
       if (inspector.rowCount === 0) {
         return res.status(400).json({
@@ -447,16 +493,42 @@ router.patch('/:id/verify', verify, authorization('Councillor', 'Master Admin'),
         const { id } = req.params;
         const { is_approved, Councillors_note } = req.body;
 
+        
+        if (typeof is_approved !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'is_approved must be true or false'
+            });
+        }
+
         const newStatus = is_approved ? 'Resolved' : 'Re-assigned';
 
         // Added councillor_note to the query
-        const updated_reports = await pool.query(
-            `UPDATE reports 
-             SET status = $1, councillor_note = $2, updated_at = NOW() 
-             WHERE report_id = $3 AND status = 'Pending Verification' 
-             RETURNING *`,
-            [newStatus, Councillors_note || null, id]
-        );
+
+      const updated_reports = await pool.query(
+          `
+          UPDATE reports AS r
+          SET
+              status = $1, councillor_note = $2, updated_at = NOW()
+          WHERE r.report_id = $3 AND r.status = 'Pending Verification'
+            AND (
+                $4 = 'Master Admin'
+                OR EXISTS (
+                    SELECT 1 FROM wards w
+                    WHERE w.ward_id = r.ward_id AND w.councillor_id = $5
+                )
+            )
+          RETURNING r.*
+          `,
+          [
+              newStatus,
+              Councillors_note || null,
+              id,
+              req.user.role,
+              req.user.user_id
+          ]
+      );
+
 
         //  RowCount is the proper way to check if the update worked
         if (updated_reports.rowCount === 0) {
