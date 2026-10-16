@@ -96,7 +96,14 @@ router.post('/login', async(req,res) => {
 
         // Used a LEFT JOIN to fetch the ward_id if the user is a Councillor
         const query = `
-            SELECT u.*, w.ward_id 
+            SELECT
+                u.user_id,
+                u.full_name,
+                u.email,
+                u.phone_number,
+                u.role,
+                u.password_hash,
+                COALESCE(u.ward_id, w.ward_id) AS ward_id
             FROM users u
             LEFT JOIN wards w ON w.councillor_id = u.user_id
             WHERE u.email = $1 OR u.phone_number = $1
@@ -212,8 +219,9 @@ router.post('/create-staff', verify, authorization('Master Admin'), async (req, 
 
         // removed ward_id from the SQL and the array
         const newStaff = await pool.query(
-            `INSERT INTO users (full_name, email, phone_number, role, password_hash, created_at)
-            VALUES ($1,$2,$3,$4,$5,NOW())
+            `INSERT INTO users
+            (full_name, email, phone_number, role, password_hash, ward_id, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
             RETURNING user_id, full_name, email, phone_number, role`,
             [full_name, email || null, phone_number || null, role, password_hash]
         )
