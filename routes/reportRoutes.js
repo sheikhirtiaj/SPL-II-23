@@ -18,7 +18,7 @@ router.get('/', verify, async (req, res) => {
         if (role === 'Master Admin') {
 
             query = `
-                SELECT * FROM report ORDER BY created_at DESC`;
+                SELECT * FROM reports ORDER BY created_at DESC`;
 
         } else if (role === 'Councillor') {
 
@@ -184,10 +184,10 @@ router.get(
           w.corporation_code
         FROM reports r
         JOIN wards w ON w.ward_id = r.ward_id
-        WHERE w.councillor_id = $1
+        WHERE ( $1 = 'Master Admin' OR w.councillor_id = $2 )
         ORDER BY r.created_at DESC
         `,
-        [req.user.user_id]
+        [req.user.role, req.user.user_id]
       );
 
       return res.status(200).json({
@@ -243,14 +243,14 @@ router.get(
         JOIN wards w ON w.ward_id = r.ward_id
         WHERE r.report_id = $1
         AND (
-            (
-            $2 = 'Councillor'
-            AND w.councillor_id = $3
+            $2 = 'Master Admin'
+            OR (
+                $2 = 'Councillor'
+                AND w.councillor_id = $3
             )
-            OR
-            (
-            $2 = 'Inspector'
-            AND r.assigned_inspector_id = $3
+            OR (
+                $2 = 'Inspector'
+                AND r.assigned_inspector_id = $3
             )
         )
         LIMIT 1
