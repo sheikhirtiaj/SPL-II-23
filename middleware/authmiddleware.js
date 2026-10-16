@@ -20,8 +20,6 @@ const verifyToken = (req,res,next) => {
         });
     }
 
-    const token = authHeader.split(' ')[1]
-
 
 
   try {
