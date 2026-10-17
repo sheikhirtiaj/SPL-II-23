@@ -6,7 +6,7 @@ const authorization = require('../middleware/rolemiddleware')
 
 const cloudinary = require('../config/cloudinary');
 const upload = require('../middleware/upload');
-
+const { evaluateHotspotForReport } = require('../services/hotspotService');
 
 router.get('/', verify, async (req, res) => {
     try {
@@ -73,97 +73,169 @@ router.get('/', verify, async (req, res) => {
 
 
 router.post('/', upload.single('before_photo'), async (req, res) => {
+  let client;
+  let transactionOpen = false;
+
   try {
+    const { description } = req.body;
+    const longitudeRaw = req.body.longitude;
+    const latitudeRaw = req.body.latitude;
 
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
-
-    const { description, longitude, latitude } = req.body;
-    
     if (!req.file) {
-        return res.status(400).json({
+      return res.status(400).json({
         success: false,
-        message: "Before photo was not received"
-    });
+        message: 'Before photo was not received'
+      });
     }
 
-    if (!longitude || !latitude) {
-    return res.status(400).json({
+    if (
+      longitudeRaw === undefined || String(longitudeRaw).trim() === '' ||
+      latitudeRaw === undefined || String(latitudeRaw).trim() === ''
+    ) {
+      return res.status(400).json({
         success: false,
-        message: "Location is required"
-    });
+        message: 'Location is required'
+      });
     }
 
+    const longitude = Number(longitudeRaw);
+    const latitude = Number(latitudeRaw);
 
-    let before_photo_url = null;
+    if (
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < -180 || longitude > 180 ||
+      latitude < -90 || latitude > 90
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid GPS coordinates are required'
+      });
+    }
 
-    if (req.file) {
-    const result = await cloudinary.uploader.upload(
-        `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
-        {
-        folder: "hazard_reports",
-        }
+    if (!req.file.mimetype?.startsWith('image/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'The before photo must be an image'
+      });
+    }
+
+    const cloudinaryResult = await cloudinary.uploader.upload(
+      `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
+      { folder: 'hazard_reports', resource_type: 'image' }
     );
+    const before_photo_url = cloudinaryResult.secure_url;
 
-    before_photo_url = result.secure_url;
-    }
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
 
-    const wardResult = await pool.query(
-        `
-        SELECT ward_id, ward_number, corporation_code
-        FROM wards
-        WHERE ST_Covers(
-            boundaries,
-            ST_SetSRID(
-            ST_MakePoint($1::float, $2::float),
-            4326
-            )
+    const wardResult = await client.query(
+      `
+      SELECT ward_id, ward_number, corporation_code
+      FROM wards
+      WHERE ST_Covers(
+        boundaries,
+        ST_SetSRID(
+          ST_MakePoint($1::double precision, $2::double precision),
+          4326
         )
-        LIMIT 1
-        `,
-        [longitude, latitude]
-        );
-
-        let detectedWardId = null;
-
-        if (wardResult.rowCount > 0) {
-        detectedWardId = wardResult.rows[0].ward_id;
-
-        console.log(
-            "Ward detected:",
-            wardResult.rows[0].corporation_code,
-            "Ward",
-            wardResult.rows[0].ward_number
-        );
-        } else {
-        console.log("No ward found for submitted GPS location");
-        }
-
-    const newReport = await pool.query(
-    `
-    INSERT INTO reports
-    (description, location, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at)
-    VALUES
-    ($1, ST_SetSRID(ST_MakePoint($2::float, $3::float),4326),$4,$5,NULL,'Pending',NOW(),NOW())
-    RETURNING *
-    `,
-    [
-        description, longitude, latitude, detectedWardId, before_photo_url
-    ]
+      )
+      LIMIT 1
+      `,
+      [longitude, latitude]
     );
 
-    res.status(201).json({
+    const detectedWard = wardResult.rows[0] || null;
+    const detectedWardId = detectedWard ? detectedWard.ward_id : null;
+
+    if (detectedWard) {
+      console.log(
+        'Ward detected:',
+        detectedWard.corporation_code,
+        'Ward',
+        detectedWard.ward_number
+      );
+    } else {
+      console.log('No ward found for submitted GPS location');
+    }
+
+    const newReport = await client.query(
+      `
+      INSERT INTO reports
+        (description, location, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at)
+      VALUES
+        ($1, ST_SetSRID(ST_MakePoint($2::double precision, $3::double precision), 4326), $4, $5, NULL, 'Pending', NOW(), NOW())
+      RETURNING *
+      `,
+      [description || null, longitude, latitude, detectedWardId, before_photo_url]
+    );
+
+    let hotspotDetection = {
+      evaluated: false,
+      reason: 'ward_not_detected',
+      threshold_reached: false,
+      hotspot: null
+    };
+
+    if (detectedWardId) {
+      // Hotspot detection is isolated by a savepoint. If the hotspot table or
+      // its query fails, the complaint itself can still be committed.
+      await client.query('SAVEPOINT hotspot_detection');
+
+      try {
+        hotspotDetection = await evaluateHotspotForReport(client, {
+          wardId: detectedWardId,
+          longitude,
+          latitude
+        });
+        await client.query('RELEASE SAVEPOINT hotspot_detection');
+      } catch (hotspotError) {
+        try {
+          await client.query('ROLLBACK TO SAVEPOINT hotspot_detection');
+          await client.query('RELEASE SAVEPOINT hotspot_detection');
+        } catch (savepointError) {
+          console.error('Could not recover from hotspot detection error:', savepointError.message);
+          throw savepointError;
+        }
+
+        console.error('Hotspot detection failed; complaint will still be saved:', hotspotError.message);
+        hotspotDetection = {
+          evaluated: false,
+          reason: 'detection_unavailable',
+          threshold_reached: false,
+          hotspot: null
+        };
+      }
+    }
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    return res.status(201).json({
       success: true,
       message: 'Report created successfully',
       data: newReport.rows[0],
+      hotspot_detection: hotspotDetection
     });
-
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
+    if (client && transactionOpen) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Report transaction rollback failed:', rollbackError.message);
+      }
+    }
+
+    console.error('Report creation error:', error.message);
+    return res.status(500).json({
       success: false,
-      message: "Couldn't save report",
+      message: "Couldn't save report"
     });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -171,7 +243,7 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
 router.get(
   '/councillor',
   verify,
-  authorization('Councillor'),
+  authorization('Councillor','Master Admin'),
   async (req, res) => {
     try {
       const result = await pool.query(
@@ -180,8 +252,7 @@ router.get(
           r.*,
           ST_Y(r.location) AS latitude,
           ST_X(r.location) AS longitude,
-          w.ward_number,
-          w.corporation_code
+          w.ward_number, w.corporation_code
         FROM reports r
         JOIN wards w ON w.ward_id = r.ward_id
         WHERE ( $1 = 'Master Admin' OR w.councillor_id = $2 )

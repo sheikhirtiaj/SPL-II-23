@@ -204,54 +204,105 @@ router.get('/staff', verify, authorization('Master Admin'), async (req, res) => 
 
 
 router.post('/create-staff', verify, authorization('Master Admin'), async (req, res) => {
+    let client;
+
     try {
-        const { full_name, email, phone_number, role, password, ward_id } = req.body
+        client = await pool.connect();
+        const {
+            full_name, email, phone_number, role, password, ward_id} = req.body;
 
         if (!['Councillor', 'Inspector'].includes(role)) {
             return res.status(400).json({
                 success: false,
                 message: "role must be either 'Councillor' or 'Inspector'"
-            })
+            });
         }
 
-        const saltRounds = 12
-        const password_hash = await bcrypt.hash(password, saltRounds)
+        if (!ward_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'ward_id is required for staff accounts'
+            });
+        }
 
-        // removed ward_id from the SQL and the array
-        const newStaff = await pool.query(
+        if (typeof password !== 'string' || password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must have at least 6 characters'
+            });
+        }
+
+        await client.query('BEGIN');
+
+        const wardResult = await client.query(
+            `SELECT ward_id FROM wards WHERE ward_id = $1`,
+            [ward_id]
+        );
+
+        if (wardResult.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid ward_id'
+            });
+        }
+
+        const password_hash = await bcrypt.hash(password, 12);
+
+        const newStaff = await client.query(
             `INSERT INTO users
-            (full_name, email, phone_number, role, password_hash, ward_id, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, NOW())
-            RETURNING user_id, full_name, email, phone_number, role`,
-            [full_name, email || null, phone_number || null, role, password_hash]
-        )
+                (full_name, email, phone_number, role, password_hash, ward_id, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             RETURNING user_id, full_name, email, phone_number, role, ward_id`,
+            [
+                full_name?.trim(), email?.trim() || null, phone_number?.trim() || null, role, password_hash, ward_id
+            ]
+        );
 
         const user = newStaff.rows[0];
 
-        // if it's a Councillor, linked them in the wards table
-        if (role === 'Councillor' && ward_id) {
-            await pool.query(
+        if (role === 'Councillor') {
+            await client.query(
                 `UPDATE wards SET councillor_id = $1 WHERE ward_id = $2`,
                 [user.user_id, ward_id]
             );
-            user.ward_id = ward_id; // attached this to the response towards the frontend
-        } else {
-            user.ward_id = null; 
         }
 
-        res.status(201).json({
+        await client.query('COMMIT');
+
+        return res.status(201).json({
             success: true,
             message: `${role} account created successfully`,
-            data: user // matched the response with the frontend's requirement
-        })
+            data: user
+        });
+
     } catch (error) {
-        console.error("Error occurred while creating staff account: ", error.message)
-        res.status(500).json({
+        try {
+            await client.query('ROLLBACK');
+        } catch (_) {}
+
+        if (error.code === '23505') {
+            return res.status(409).json({
+                success: false,
+                message: 'Email or phone number already registered'
+            });
+        }
+
+        console.error(
+            "Error occurred while creating staff account:",
+            error.message
+        );
+
+        return res.status(500).json({
             success: false,
             message: "Error occurred while creating staff account"
-        })
+        });
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
-})
+});
 
 
 // bcrypt.hash("123456", 12).then(console.log);

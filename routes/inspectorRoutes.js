@@ -40,7 +40,7 @@ router.get('/', verify, authorization('Councillor', 'Master Admin'), async (req,
             params = [req.user.ward_id];
         }
 
-        const result = await pool.query(query, [req.user.ward_id]);
+        const result = await pool.query(query, params);
 
         res.status(200).json({
             success: true,

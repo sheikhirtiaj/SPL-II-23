@@ -11,14 +11,17 @@ app.use(cors({
   origin: 'http://localhost:3000'
 }))
 
-const reportRoutes = require('./routes/reportRoutes');
+const reportRoutes = require('./routes/reportRoutes')
 app.use('/api/reports', reportRoutes);
 
 const userRoutes = require('./routes/userRoutes')
 app.use('/api/users', userRoutes)
 
-const inspectorRoutes=require('./routes/inspectorRoutes');
+const inspectorRoutes=require('./routes/inspectorRoutes')
 app.use('/api/inspectors', inspectorRoutes);
+
+const hotspotRoutes = require('./routes/hotspotRoutes')
+app.use('api/hotspot', hotspotRoutes);
 
 app.get('/', (req,res) => {
     res.json({ message: "That's Dengue Alert API"})

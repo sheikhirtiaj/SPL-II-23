@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "dengue-alert-system",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+"scripts": {
+  "test": "node --test"
+},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Irtiaj/SPL-II-23.git"
