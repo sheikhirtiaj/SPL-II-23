@@ -13,18 +13,7 @@ const formatDate = (dateValue) => {
   return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleString();
 };
 
-/**
- * Converts a File object to a Base64 data URL string.
- * In a real production app this would upload to cloud storage (S3, Cloudinary, etc.)
- * and return the hosted URL. Here we send base64 as the photo URL for now.
- */
-const fileToDataUrl = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+
 
 const InspectorComplaintPage = () => {
   const { id } = useParams();
@@ -68,21 +57,37 @@ const InspectorComplaintPage = () => {
   const handleCleanupSubmit = async ({ file, latitude, longitude }) => {
     setUploadLoading(true);
     setError('');
+
     try {
-      // Convert file to data URL (replace with real upload endpoint in production)
-      const dataUrl = await fileToDataUrl(file);
+      if (!file) {
+        setError('Cleanup photo is required.');
+        return;
+      }
 
-      const payload = {
-        after_photo_url: dataUrl,
-        ...(latitude != null && { after_latitude: latitude }),
-        ...(longitude != null && { after_longitude: longitude }),
-      };
+      if (latitude == null || longitude == null) {
+        setError('GPS location is required. Please wait for location capture and try again.');
+        return;
+      }
 
-      await api.patch(`/reports/${id}`, payload);
-      showToast('✅ Cleanup evidence submitted! Awaiting councillor review.');
+      const formData = new FormData();
+
+      formData.append('after_photo', file);
+      formData.append('latitude', latitude);
+      formData.append('longitude', longitude);
+
+      await api.patch(`/reports/${id}`, formData);
+
+      showToast(' Cleanup evidence submitted! Awaiting councillor review.');
+
       await fetchReport();
+
     } catch (err) {
-      setError(err.response?.data?.message || 'Upload failed. Please try again.');
+      console.error('Cleanup upload error:', err);
+
+      setError(
+        err.response?.data?.message ||
+        'Upload failed. Please try again.'
+      );
     } finally {
       setUploadLoading(false);
     }
@@ -172,7 +177,7 @@ const InspectorComplaintPage = () => {
                 className="w-full max-h-72 object-cover"
               />
               <div className="px-3 py-1.5 bg-red-50 border-t border-red-100">
-                <p className="text-xs text-red-600 font-medium">📸 Before-cleanup photo submitted by citizen</p>
+                <p className="text-xs text-red-600 font-medium"> Before-cleanup photo submitted by citizen</p>
               </div>
             </div>
           )}
