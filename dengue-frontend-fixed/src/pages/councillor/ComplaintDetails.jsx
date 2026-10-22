@@ -109,7 +109,7 @@ const ComplaintDetails = () => {
       await api.patch(`/reports/${id}/assign`, {
         inspector_id: Number(selectedInspector.user_id),
       });
-      showToast(`✅ Assigned to ${selectedInspector.full_name}`);
+      showToast(` Assigned to ${selectedInspector.full_name}`);
       await fetchAll();
       setSelectedInspector(null);
     } catch (err) {
@@ -156,7 +156,7 @@ const ComplaintDetails = () => {
       <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="max-w-2xl mx-auto px-4 py-16 text-center text-gray-500">
-          <div className="text-5xl mb-3">😕</div>
+          <div className="text-5xl mb-3"></div>
           <p className="font-medium">Complaint not found</p>
           <button onClick={() => navigate('/councillor')} className="mt-4 text-red-600 underline text-sm">
             Back to Dashboard
@@ -246,6 +246,116 @@ const ComplaintDetails = () => {
             longitude={report.longitude}
             locationText={report.location_text}
           />
+
+
+          {/* Citizen GPS vs Inspector Cleanup GPS */}
+          {report.cleanup_latitude != null &&
+            report.cleanup_longitude != null && (
+              <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 overflow-hidden">
+
+                <div className="px-4 py-3 border-b border-purple-200">
+                  <h3 className="text-sm font-bold text-purple-800">
+                     Cleanup Location Verification
+                  </h3>
+
+                  <p className="text-xs text-purple-600 mt-1">
+                    Compare the original complaint location with the
+                    Inspector's cleanup location.
+                  </p>
+                </div>
+
+                <div className="p-4 space-y-3">
+
+                  {/* Citizen GPS */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
+
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase">
+                           Citizen Report GPS
+                        </p>
+
+                        <p className="text-sm font-medium text-gray-800 mt-1">
+                          {Number(report.latitude).toFixed(6)},{' '}
+                          {Number(report.longitude).toFixed(6)}
+                        </p>
+                      </div>
+
+                      <a
+                        href={`https://www.google.com/maps?q=${report.latitude},${report.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                      >
+                        Open ↗
+                      </a>
+
+                    </div>
+                  </div>
+
+                  {/* Inspector GPS */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
+
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase">
+                           Inspector Cleanup GPS
+                        </p>
+
+                        <p className="text-sm font-medium text-gray-800 mt-1">
+                          {Number(report.cleanup_latitude).toFixed(6)},{' '}
+                          {Number(report.cleanup_longitude).toFixed(6)}
+                        </p>
+
+                        {report.cleanup_submitted_at && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Captured:{' '}
+                            {formatDate(report.cleanup_submitted_at)}
+                          </p>
+                        )}
+                      </div>
+
+                      <a
+                        href={`https://www.google.com/maps?q=${report.cleanup_latitude},${report.cleanup_longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                      >
+                        Open ↗
+                      </a>
+
+                    </div>
+                  </div>
+
+                  {/* Distance */}
+                  {report.cleanup_distance_meters != null && (
+                    <div className="bg-white rounded-lg border border-purple-200 p-4 text-center">
+
+                      <p className="text-xs text-gray-500 uppercase font-semibold">
+                        Straight-line distance
+                      </p>
+
+                      <p className="text-2xl font-bold text-purple-700 mt-1">
+                        {Number(report.cleanup_distance_meters) < 1000
+                          ? `${Number(
+                              report.cleanup_distance_meters
+                            ).toFixed(1)} m`
+                          : `${(
+                              Number(report.cleanup_distance_meters) /
+                              1000
+                            ).toFixed(2)} km`}
+                      </p>
+
+                      <p className="text-xs text-gray-400 mt-1">
+                        Between complaint GPS and cleanup GPS
+                      </p>
+
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            )}
 
           {/* Meta info */}
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
