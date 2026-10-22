@@ -56,9 +56,9 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     const payload = {
-      full_name: userData.full_name.trim(),
-      email: userData.email.trim(),
-      phone_number: userData.phone_number.trim(),
+      full_name: userData.full_name?.trim() || null,
+      email: userData.email?.trim() || null,
+      phone_number: userData.phone_number?.trim() || null,
       role: userData.role,
       password: userData.password,
     };

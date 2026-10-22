@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../axios';
@@ -39,6 +39,17 @@ const Dashboard = () => {
     description: '',
   });
   const [afterPhotoUrls, setAfterPhotoUrls] = useState({});
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState(null);
+
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const [beforePhoto, setBeforePhoto] = useState(null);
+  const [location, setLocation] = useState({
+  longitude: null,
+  latitude: null
+  });
   const [inspectorIds, setInspectorIds] = useState({});
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -76,26 +87,154 @@ const Dashboard = () => {
     fetchReports();
   }, []);
 
+  useEffect(() => {
+  if (
+    cameraOpen &&
+    videoRef.current &&
+    streamRef.current
+  ) {
+    videoRef.current.srcObject = streamRef.current;
+  }
+}, [cameraOpen]);
+
   // Role-based routing: dedicated dashboards for Councillor and Inspector
   // Must be after all hooks to comply with React Rules of Hooks
   if (user?.role === 'Councillor') return <Navigate to="/councillor" replace />;
   if (user?.role === 'Inspector') return <Navigate to="/inspector" replace />;
 
-  const handleCreate = async (e) => {
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocation({
+          longitude: position.coords.longitude,
+          latitude: position.coords.latitude
+        });
+      },
+      (error) => {
+        console.error("Location error:", error);
+        alert("Please allow location access.");
+      }
+    );
+  };
+
+    const startCamera = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" }
+      },
+      audio: false
+    });
+
+    streamRef.current = stream;
+    setCameraOpen(true);
+
+  } catch (error) {
+    console.error("Camera error:", error);
+    notify("Camera permission is required.", "error");
+  }
+};
+
+const stopCamera = () => {
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }
+
+  setCameraOpen(false);
+};
+
+const capturePhoto = () => {
+  const video = videoRef.current;
+  const canvas = canvasRef.current;
+
+  if (!video || !canvas) return;
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const context = canvas.getContext("2d");
+
+  context.drawImage(
+    video,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) return;
+
+      const file = new File(
+        [blob],
+        `hazard-${Date.now()}.jpg`,
+        {
+          type: "image/jpeg"
+        }
+      );
+
+      setBeforePhoto(file);
+
+      setPhotoPreview(
+        URL.createObjectURL(blob)
+      );
+
+      stopCamera();
+    },
+    "image/jpeg",
+    0.9
+  );
+};
+
+    const handleCreate = async (e) => {
     e.preventDefault();
 
+    if (location.latitude === null || location.longitude === null) {
+      notify("Please get your current location before submitting.", "error");
+      return;
+    }
+
+    if (!beforePhoto) {
+      notify("Please select a photo.", "error");
+      return;
+    }
+
     try {
-      // CHANGED: only sending description; longitude, latitude, before_photo_url removed
-      const res = await api.post('/reports', {
-        description: form.description.trim(),
+      const formData = new FormData();
+
+      formData.append("description", form.description);
+      formData.append("longitude", location.longitude);
+      formData.append("latitude", location.latitude);
+      formData.append("before_photo", beforePhoto);
+
+      const res = await api.post("/reports", formData);
+
+      notify(res.data?.message || "Report submitted successfully");
+
+      setForm({ description: "" });
+      setBeforePhoto(null);
+
+      setLocation({
+        longitude: null,
+        latitude: null
       });
 
-      notify(res.data?.message || 'Report submitted successfully');
-      // CHANGED: reset only description
-      setForm({ description: '' });
       fetchReports();
+
     } catch (err) {
-      notify(err.response?.data?.message || 'Failed to submit report', 'error');
+      console.error(err);
+
+      notify(
+        err.response?.data?.message || "Failed to submit report",
+        "error"
+      );
     }
   };
 
@@ -221,22 +360,109 @@ const Dashboard = () => {
         {user?.role === 'Citizen' && (
           <div className="bg-white p-6 rounded shadow mb-6">
             <h2 className="text-xl font-bold mb-4">Report a Hotspot</h2>
-            {/* CHANGED: form now has only description field; grid changed to single column */}
+
             <form onSubmit={handleCreate} className="flex flex-col gap-4">
+
               <input
                 type="text"
                 placeholder="Description"
                 className="p-2 border rounded"
                 value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
                 required
               />
+
+            {!cameraOpen && !photoPreview && (
+              <button
+                type="button"
+                onClick={startCamera}
+                className="bg-purple-600 text-white p-2 rounded"
+              >
+                Open Camera
+              </button>
+            )}
+
+            {cameraOpen && (
+              <div className="flex flex-col gap-3">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full max-h-96 bg-black rounded"
+                />
+
+                <button
+                  type="button"
+                  onClick={capturePhoto}
+                  className="bg-purple-600 text-white p-2 rounded"
+                >
+                  Capture Photo
+                </button>
+
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="bg-gray-500 text-white p-2 rounded"
+                >
+                  Cancel Camera
+                </button>
+              </div>
+            )}
+
+            <canvas
+              ref={canvasRef}
+              style={{ display: "none" }}
+            />
+
+            {photoPreview && (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-green-700">
+                  Photo captured successfully
+                </p>
+
+                <img
+                  src={photoPreview}
+                  alt="Captured hazard"
+                  className="w-full max-h-80 object-contain rounded border"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBeforePhoto(null);
+                    setPhotoPreview(null);
+                    startCamera();
+                  }}
+                  className="bg-gray-600 text-white p-2 rounded"
+                >
+                  Retake Photo
+                </button>
+              </div>
+            )}
+
+              <button
+                type="button"
+                onClick={getCurrentLocation}
+                className="bg-green-600 text-white p-2 rounded"
+              >
+                Get Current Location
+              </button>
+
+              {location.latitude && location.longitude && (
+                <p className="text-sm text-green-700">
+                  Location captured successfully
+                </p>
+              )}
+
               <button
                 type="submit"
                 className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 font-semibold"
               >
                 Submit Report
               </button>
+
             </form>
           </div>
         )}

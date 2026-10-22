@@ -114,7 +114,7 @@ const InspectorDashboard = () => {
 
           {!loading && reports.length === 0 && (
             <div className="text-center py-16 text-gray-400">
-              <div className="text-5xl mb-3">🎉</div>
+              <div className="text-5xl mb-3"></div>
               <p className="font-medium text-gray-600">No tasks assigned to you</p>
               <p className="text-sm mt-1">Check back later — your councillor will assign complaints here.</p>
             </div>
@@ -154,7 +154,7 @@ const InspectorDashboard = () => {
 
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
                     {(r.latitude && r.longitude) && (
-                      <span>📍 {parseFloat(r.latitude).toFixed(4)}, {parseFloat(r.longitude).toFixed(4)}</span>
+                      <span> {parseFloat(r.latitude).toFixed(4)}, {parseFloat(r.longitude).toFixed(4)}</span>
                     )}
                     <span>🕒 {formatDate(r.created_at)}</span>
                   </div>

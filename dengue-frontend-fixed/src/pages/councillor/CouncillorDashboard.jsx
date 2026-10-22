@@ -33,19 +33,19 @@ const CouncillorDashboard = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/reports');
-      const all = Array.isArray(res.data?.data) ? res.data.data : [];
-      // Ward filtering: only show complaints for this councillor's ward
-      const wardFiltered = user?.ward_id
-        ? all.filter((r) => String(r.ward_id) === String(user.ward_id))
-        : all;
-      setReports(wardFiltered);
+      const res = await api.get('/reports/councillor');
+
+      const data = Array.isArray(res.data?.data)
+        ? res.data.data
+        : [];
+
+      setReports(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load complaints');
     } finally {
       setLoading(false);
     }
-  }, [user?.ward_id]);
+  }, []);
 
   useEffect(() => {
     fetchReports();
@@ -177,11 +177,11 @@ const CouncillorDashboard = () => {
 
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                     {(r.latitude && r.longitude) && (
-                      <span>📍 {parseFloat(r.latitude).toFixed(4)}, {parseFloat(r.longitude).toFixed(4)}</span>
+                      <span> {parseFloat(r.latitude).toFixed(4)}, {parseFloat(r.longitude).toFixed(4)}</span>
                     )}
                     <span>🕒 {formatDate(r.created_at)}</span>
                     {r.assigned_inspector_name && (
-                      <span className="text-blue-600">👷 {r.assigned_inspector_name}</span>
+                      <span className="text-blue-600"> {r.assigned_inspector_name}</span>
                     )}
                   </div>
                 </div>
