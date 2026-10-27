@@ -4,10 +4,10 @@ const MapLocationView = ({ latitude, longitude, locationText }) => {
   const hasCoords = latitude != null && longitude != null;
 
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+    <div className="da-map rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
       {/* Location text bar */}
-      <div className="flex items-center gap-2 px-4 py-2.5 bg-white border-b border-gray-200">
-        <span className="text-red-500 text-lg">📍</span>
+      <div className="da-map__header flex items-center gap-2 px-4 py-2.5 bg-white border-b border-gray-200">
+        <span className="text-emerald-700 text-lg">📍</span>
         <div className="min-w-0">
           {locationText && (
             <p className="text-sm font-medium text-gray-800 truncate">{locationText}</p>
@@ -25,7 +25,7 @@ const MapLocationView = ({ latitude, longitude, locationText }) => {
             href={`https://www.google.com/maps?q=${latitude},${longitude}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap flex-shrink-0"
+            className="da-map__link ml-auto text-xs font-medium text-emerald-700 hover:text-emerald-900 whitespace-nowrap flex-shrink-0"
           >
             Open in Maps ↗
           </a>

@@ -1,0 +1,154 @@
+/* Complaint / task detail pages only — reuse the same palette and navbar as
+   LandingPage.css and ThemePages.css without changing other dashboards. */
+
+.da-detail-page {
+  background:
+    radial-gradient(ellipse at 88% 12%, rgba(231, 243, 236, .42), transparent 35%),
+    var(--da-background);
+}
+
+.da-detail-page .da-detail-main {
+  width: min(760px, calc(100% - 48px));
+  max-width: 760px;
+  padding: 33px 0 90px;
+  margin: 0 auto;
+}
+
+.da-detail-page .da-detail-heading {
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 23px;
+}
+
+.da-detail-page .da-detail-back {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border: 1px solid var(--da-border);
+  border-radius: 12px;
+  color: var(--da-green);
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(23, 51, 45, .035);
+  font-size: 25px;
+  line-height: 1;
+  transition: background .2s, border-color .2s;
+}
+
+.da-detail-page .da-detail-back:hover {
+  background: var(--da-green-light);
+  border-color: #b6d9c6;
+}
+
+.da-detail-page .da-detail-eyebrow {
+  margin: 0 0 3px;
+  color: var(--da-green);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  letter-spacing: 1.1px;
+}
+
+.da-detail-page .da-detail-title {
+  color: var(--da-ink);
+  font-size: clamp(19px, 2.3vw, 23px);
+  font-weight: 800;
+  letter-spacing: -.55px;
+  line-height: 1.35;
+}
+
+.da-detail-page .da-detail-date {
+  margin-top: 3px;
+  color: var(--da-muted);
+  font-size: 11px;
+}
+
+.da-detail-page .da-detail-card {
+  padding: clamp(17px, 3vw, 25px);
+  margin-bottom: 16px;
+  border: 1px solid var(--da-border);
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 6px 22px rgba(23, 51, 45, .035);
+}
+
+.da-detail-page .da-detail-card-title {
+  margin: 0 0 13px;
+  color: var(--da-ink);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .45px;
+  line-height: 1.5;
+}
+
+.da-detail-page .da-detail-description-box {
+  border: 1px solid #e4eee6;
+  border-radius: 11px;
+  background: #f7faf7;
+}
+
+.da-detail-page .da-detail-description-box p:first-child {
+  color: #72897b;
+}
+.da-detail-page .da-detail-description-box p:last-child {
+  color: var(--da-ink);
+  line-height: 1.65;
+}
+
+.da-detail-page .da-detail-gps {
+  border-color: #c8e0d0;
+  background: #f0f8f2;
+}
+
+.da-detail-page .da-detail-map-link,
+.da-detail-page .da-map__link {
+  color: var(--da-green);
+  font-weight: 700;
+  text-decoration: none;
+}
+.da-detail-page .da-detail-map-link:hover,
+.da-detail-page .da-map__link:hover {
+  color: var(--da-green-dark);
+  text-decoration: underline;
+}
+
+.da-detail-page .da-map {
+  border-color: var(--da-border);
+  border-radius: 13px;
+  background: #f8fbf8;
+}
+.da-detail-page .da-map__header {
+  border-bottom-color: var(--da-border);
+  background: #fbfdfb;
+}
+.da-detail-page .da-detail-toast {
+  background: var(--da-ink);
+}
+
+.da-detail-page .da-detail-primary-button {
+  border-color: var(--da-green);
+  color: #fff;
+  background: var(--da-green);
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.da-detail-page .da-detail-primary-button:hover:not(:disabled) {
+  border-color: var(--da-green-dark);
+  background: var(--da-green-dark);
+}
+.da-detail-page .da-detail-primary-button:disabled { opacity: .6; cursor: not-allowed; }
+
+.da-detail-page button:focus-visible,
+.da-detail-page a:focus-visible {
+  outline: 3px solid #7bbd99;
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .da-detail-page .da-detail-main {
+    width: calc(100% - 28px);
+    padding: 23px 0 70px;
+  }
+  .da-detail-page .da-detail-heading { gap: 10px; margin-bottom: 18px; }
+  .da-detail-page .da-detail-back { width: 39px; height: 39px; }
+  .da-detail-page .da-detail-card { padding: 16px; border-radius: 14px; }
+  .da-detail-page .da-detail-title { font-size: 19px; }
+}

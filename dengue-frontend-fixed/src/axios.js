@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API_BASE_URL =
-  process.env.REACT_APP_API_BASE_URL || 'http://localhost:3500/api';
+  process.env.REACT_APP_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -28,7 +28,10 @@ api.interceptors.response.use(
 
       const isAuthRequest =
         requestUrl.includes('/users/login') ||
-        requestUrl.includes('/users/register');
+        requestUrl.includes('/users/register') ||
+        requestUrl.includes('/users/google-auth') ||
+        requestUrl.includes('/users/verify-email') ||
+        requestUrl.includes('/users/resend-verification');
 
       if (!isAuthRequest) {
         localStorage.removeItem('token');

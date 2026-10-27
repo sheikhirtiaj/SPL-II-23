@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../axios';
 import Navbar from '../../components/Navbar';
+import '../ThemePages.css';
+import '../ComplaintDetailTheme.css';
 import StatusBadge from '../../components/StatusBadge';
 import MapLocationView from '../../components/MapLocationView';
 import BeforeAfterComparison from '../../components/BeforeAfterComparison';
@@ -48,6 +50,9 @@ const ComplaintDetails = () => {
   const [assignDialog, setAssignDialog] = useState(false);
   const [completeDialog, setCompleteDialog] = useState(false);
   const [reassignDialog, setReassignDialog] = useState(false);
+  const [rejectDialog, setRejectDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectCategory, setRejectCategory] = useState('');
 
   const showToast = (msg) => {
     setToast(msg);
@@ -134,11 +139,33 @@ const ComplaintDetails = () => {
     }
   };
 
+  const handleReject = async () => {
+    if (!rejectCategory || (rejectCategory === 'Other' && !rejectReason.trim())) {
+      setError('Select a rejection reason. For Other, provide a short explanation.');
+      return;
+    }
+    const rejectionNote = rejectCategory === 'Other' ? `Other: ${rejectReason.trim()}` : rejectReason.trim() ? `${rejectCategory}: ${rejectReason.trim()}` : rejectCategory;
+    setActionLoading(true);
+    setError('');
+    try {
+      await api.patch(`/reports/${id}/reject`, { reason: rejectionNote });
+      setRejectDialog(false);
+      setRejectCategory('');
+      setRejectReason('');
+      navigate('/councillor', { replace: true });
+    } catch (err) {
+      setRejectDialog(false);
+      setError(err.response?.data?.message || 'Could not reject this complaint.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // --- Render states ---
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Navbar />
+      <div className="da-dashboard-page da-detail-page">
+        <Navbar theme="landing" />
         <div className="max-w-2xl mx-auto px-4 py-8">
           <div className="animate-pulse space-y-4">
             <div className="h-6 bg-gray-200 rounded w-1/3" />
@@ -153,12 +180,12 @@ const ComplaintDetails = () => {
 
   if (!report) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Navbar />
+      <div className="da-dashboard-page da-detail-page">
+        <Navbar theme="landing" />
         <div className="max-w-2xl mx-auto px-4 py-16 text-center text-gray-500">
           <div className="text-5xl mb-3"></div>
           <p className="font-medium">Complaint not found</p>
-          <button onClick={() => navigate('/councillor')} className="mt-4 text-red-600 underline text-sm">
+          <button onClick={() => navigate('/councillor')} className="mt-4 text-emerald-700 underline text-sm">
             Back to Dashboard
           </button>
         </div>
@@ -170,31 +197,32 @@ const ComplaintDetails = () => {
   const isAssignmentMode = report.status === 'Pending' || report.status === 'Re-assigned';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar />
+    <div className="da-dashboard-page da-detail-page">
+      <Navbar theme="landing" />
 
       {/* Toast */}
       {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-5 py-2.5 rounded-full shadow-xl">
+        <div className="da-detail-toast fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-5 py-2.5 rounded-full shadow-xl">
           {toast}
         </div>
       )}
 
-      <main className="max-w-2xl mx-auto px-4 py-5 pb-24">
+      <main className="da-detail-main max-w-2xl mx-auto px-4 py-5 pb-24">
         {/* Back + header */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="da-detail-heading flex items-center gap-3 mb-4">
           <button
             onClick={() => navigate('/councillor')}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"
+            className="da-detail-back w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"
           >
             ‹
           </button>
           <div>
+            <p className="da-detail-eyebrow">WARD MANAGEMENT</p>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-gray-900">Complaint #{report.report_id}</h1>
-              <StatusBadge status={report.status} size="sm" />
+              <h1 className="da-detail-title text-lg font-bold text-gray-900">Complaint #{report.report_id}</h1>
+              <StatusBadge status={report.status} size="sm" theme="landing" />
             </div>
-            <p className="text-xs text-gray-500">Submitted {formatDate(report.created_at)}</p>
+            <p className="da-detail-date text-xs text-gray-500">Submitted {formatDate(report.created_at)}</p>
           </div>
         </div>
 
@@ -205,8 +233,8 @@ const ComplaintDetails = () => {
         )}
 
         {/* ─── SECTION 1: Complaint Evidence ─── */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
+        <section className="da-detail-card bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+          <h2 className="da-detail-card-title text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
             Citizen Report
           </h2>
 
@@ -232,9 +260,9 @@ const ComplaintDetails = () => {
 
           {/* Description */}
           {report.description ? (
-            <div className="mb-4 p-3 bg-gray-50 rounded-xl">
+            <div className="da-detail-description-box mb-4 p-3 bg-gray-50 rounded-xl">
               <p className="text-xs text-gray-400 font-semibold uppercase mb-1">Description</p>
-              <p className="text-sm text-gray-800">{report.description}</p>
+              <p className="text-sm text-gray-800" translate="no">{report.description}</p>
             </div>
           ) : (
             <p className="text-sm text-gray-400 italic mb-4">No description provided</p>
@@ -249,16 +277,22 @@ const ComplaintDetails = () => {
 
 
           {/* Citizen GPS vs Inspector Cleanup GPS */}
+          {report.inspector_comment && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">
+              <strong className="block text-sm text-emerald-900 mb-1">Inspector comment</strong>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{report.inspector_comment}</p>
+            </div>
+          )}
           {report.cleanup_latitude != null &&
             report.cleanup_longitude != null && (
-              <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 overflow-hidden">
+              <div className="da-detail-gps mt-4 rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
 
-                <div className="px-4 py-3 border-b border-purple-200">
-                  <h3 className="text-sm font-bold text-purple-800">
+                <div className="px-4 py-3 border-b border-emerald-200">
+                  <h3 className="text-sm font-bold text-emerald-900">
                      Cleanup Location Verification
                   </h3>
 
-                  <p className="text-xs text-purple-600 mt-1">
+                  <p className="text-xs text-emerald-800 mt-1">
                     Compare the original complaint location with the
                     Inspector's cleanup location.
                   </p>
@@ -285,7 +319,7 @@ const ComplaintDetails = () => {
                         href={`https://www.google.com/maps?q=${report.latitude},${report.longitude}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                        className="da-detail-map-link text-xs text-emerald-700 hover:text-emerald-900 whitespace-nowrap"
                       >
                         Open ↗
                       </a>
@@ -319,7 +353,7 @@ const ComplaintDetails = () => {
                         href={`https://www.google.com/maps?q=${report.cleanup_latitude},${report.cleanup_longitude}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                        className="da-detail-map-link text-xs text-emerald-700 hover:text-emerald-900 whitespace-nowrap"
                       >
                         Open ↗
                       </a>
@@ -328,14 +362,20 @@ const ComplaintDetails = () => {
                   </div>
 
                   {/* Distance */}
+                  {report.cleanup_distance_meters != null && Number(report.cleanup_distance_meters) > 1000 && (
+                    <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                      <p className="text-sm font-bold">Location mismatch concern</p>
+                      <p className="text-xs mt-1">The cleanup GPS is more than 1 km from the original report location. Review the evidence before approving.</p>
+                    </div>
+                  )}
                   {report.cleanup_distance_meters != null && (
-                    <div className="bg-white rounded-lg border border-purple-200 p-4 text-center">
+                    <div className={`bg-white rounded-lg border p-4 text-center ${Number(report.cleanup_distance_meters) > 1000 ? 'border-amber-300' : 'border-emerald-200'}`}>
 
                       <p className="text-xs text-gray-500 uppercase font-semibold">
                         Straight-line distance
                       </p>
 
-                      <p className="text-2xl font-bold text-purple-700 mt-1">
+                      <p className="text-2xl font-bold text-emerald-700 mt-1">
                         {Number(report.cleanup_distance_meters) < 1000
                           ? `${Number(
                               report.cleanup_distance_meters
@@ -368,8 +408,8 @@ const ComplaintDetails = () => {
 
         {/* ─── SECTION 2: Inspector Assignment (Pending / Re-assigned) ─── */}
         {isAssignmentMode && (
-          <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1">
+          <section className="da-detail-card bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+            <h2 className="da-detail-card-title text-sm font-bold text-gray-500 uppercase tracking-wider mb-1">
               Assign Inspector
             </h2>
             <p className="text-xs text-gray-400 mb-4">
@@ -402,7 +442,7 @@ const ComplaintDetails = () => {
               disabled={!selectedInspector || actionLoading}
               className={`w-full py-3 rounded-xl font-semibold text-sm transition-all
                 ${selectedInspector && !actionLoading
-                  ? 'bg-red-600 text-white hover:bg-red-700 shadow-md active:scale-95'
+                  ? 'da-detail-primary-button text-white shadow-md active:scale-95'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
             >
@@ -410,13 +450,26 @@ const ComplaintDetails = () => {
                 ? `Assign ${selectedInspector.full_name}`
                 : 'Select an inspector above'}
             </button>
+
+            {/* New: reject an invalid complaint before it is assigned. */}
+            <button
+              type="button"
+              onClick={() => setRejectDialog(true)}
+              disabled={actionLoading}
+              className="w-full mt-3 py-3 rounded-xl font-semibold text-sm border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+            >
+              Reject Complaint
+            </button>
+            <p className="text-xs text-gray-500 mt-2">
+              Use only for invalid or unnecessary complaints. This removes it from your active list; the citizen sees Rejected.
+            </p>
           </section>
         )}
 
         {/* ─── SECTION 3: Verification Actions (Pending Verification) ─── */}
         {isVerificationMode && (
-          <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1">
+          <section className="da-detail-card bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+            <h2 className="da-detail-card-title text-sm font-bold text-gray-500 uppercase tracking-wider mb-1">
               Verification Decision
             </h2>
             <p className="text-xs text-gray-400 mb-4">
@@ -427,7 +480,7 @@ const ComplaintDetails = () => {
               <button
                 onClick={() => setCompleteDialog(true)}
                 disabled={actionLoading}
-                className="w-full py-3.5 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 shadow-md active:scale-95 transition-all text-sm"
+                className="da-detail-primary-button w-full py-3.5 rounded-xl font-bold text-white shadow-md active:scale-95 transition-all text-sm"
               >
                 ✅ Mark as Completed
               </button>
@@ -444,12 +497,55 @@ const ComplaintDetails = () => {
 
         {/* Readonly status for other statuses */}
         {!isAssignmentMode && !isVerificationMode && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center text-gray-500 text-sm">
-            <StatusBadge status={report.status} />
+          <div className="da-detail-card bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center text-gray-500 text-sm">
+            <StatusBadge status={report.status} theme="landing" />
             <p className="mt-2">This complaint is {report.status === 'Resolved' ? 'completed' : 'in progress'}. No further action needed.</p>
           </div>
         )}
       </main>
+
+      {/* Confirm: reject citizen complaint (distinct from cleanup reassignment) */}
+      <ConfirmDialog
+        isOpen={rejectDialog}
+        title="Reject this complaint?"
+        message="This will remove the complaint from your dashboard and show Rejected to the citizen. This action cannot be undone here."
+        confirmLabel={actionLoading ? 'Rejecting…' : 'Yes, Reject Complaint'}
+        confirmClass="bg-red-700 hover:bg-red-800"
+        onConfirm={handleReject}
+        onCancel={() => { if (!actionLoading) setRejectDialog(false); }}
+      >
+        <label htmlFor="reject-category" className="block text-xs font-semibold text-gray-700 mb-1">
+          Rejection reason <span className="text-red-600">*</span>
+        </label>
+        <select
+          id="reject-category"
+          value={rejectCategory}
+          onChange={(event) => setRejectCategory(event.target.value)}
+          required
+          className="w-full rounded-lg border border-gray-300 p-2 text-sm mb-3"
+        >
+          <option value="">Select a reason</option>
+          <option value="Duplicate">Duplicate report</option>
+          <option value="Fake">Fake or misleading report</option>
+          <option value="Vague">Insufficient or vague information</option>
+          <option value="Not a breeding site">Not a mosquito breeding site</option>
+          <option value="Outside ward">Outside this ward</option>
+          <option value="Other">Other</option>
+        </select>
+        <label htmlFor="reject-reason" className="block text-xs font-semibold text-gray-700 mb-1">
+          Additional explanation {rejectCategory === 'Other' ? <span className="text-red-600">*</span> : '(optional)'}
+        </label>
+        <textarea
+          id="reject-reason"
+          value={rejectReason}
+          onChange={(event) => setRejectReason(event.target.value)}
+          maxLength={500}
+          rows={2}
+          required={rejectCategory === 'Other'}
+          className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+          placeholder="Add details if needed"
+        />
+      </ConfirmDialog>
 
       {/* Confirm: Assign */}
       <ConfirmDialog
@@ -457,7 +553,7 @@ const ComplaintDetails = () => {
         title="Confirm Assignment"
         message={`Are you sure you want to assign this complaint to ${selectedInspector?.full_name}? They will be notified immediately.`}
         confirmLabel="Yes, Assign"
-        confirmClass="bg-red-600 hover:bg-red-700"
+        confirmClass="da-detail-primary-button"
         onConfirm={handleAssign}
         onCancel={() => setAssignDialog(false)}
       />
@@ -468,7 +564,7 @@ const ComplaintDetails = () => {
         title="Mark as Completed?"
         message="This will close the complaint and mark the cleanup as successful. This action cannot be undone."
         confirmLabel="Yes, Complete"
-        confirmClass="bg-green-600 hover:bg-green-700"
+        confirmClass="da-detail-primary-button"
         onConfirm={() => handleVerify(true)}
         onCancel={() => setCompleteDialog(false)}
       />

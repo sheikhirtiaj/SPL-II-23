@@ -1,0 +1,100 @@
+/* Magistrate view only — uses the same green palette as LandingPage.css.
+   No styles from the citizen, councillor or inspector workflows are changed. */
+.ma-page {
+  --ma-ink: #17332d;
+  --ma-muted: #687a73;
+  --ma-green: #176b50;
+  --ma-green-dark: #10543e;
+  --ma-green-light: #e7f3ec;
+  --ma-border: #e0e9e3;
+  box-sizing: border-box;
+  min-height: 100vh;
+  color: var(--ma-ink);
+  background: radial-gradient(ellipse at 90% 10%, #e7f3ec 0, transparent 36%), #f8fbf8;
+}
+.ma-page *, .ma-page *::before, .ma-page *::after { box-sizing: border-box; }
+.ma-page a { text-decoration: none; }
+.ma-header { background: #fff; border-bottom: 1px solid var(--ma-border); }
+.ma-header-inner { width: min(1090px, calc(100% - 40px)); margin: auto; min-height: 83px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ma-brand { display: flex; align-items: center; gap: 12px; color: var(--ma-ink); }
+.ma-brand-symbol { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: #fff; background: var(--ma-green); }
+.ma-brand-text { display: flex; flex-direction: column; gap: 3px; }
+.ma-brand-text strong { font-size: 17px; line-height: 1.25; font-weight: 800; }
+.ma-brand-text small { font-size: 11px; color: var(--ma-muted); }
+.ma-view-label { display: inline-flex; gap: 9px; align-items: center; padding: 9px 13px; color: #176b50; border-radius: 999px; background: var(--ma-green-light); font-weight: 800; font-size: 10px; letter-spacing: .8px; white-space: nowrap; }
+.ma-status-dot { width: 7px; height: 7px; border-radius: 100%; background: #35a676; }
+.ma-body { width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 39px 0 72px; }
+.ma-eyebrow, .ma-section-eyebrow { color: var(--ma-green); font-size: 10px; font-weight: 800; letter-spacing: 1.35px; text-transform: uppercase; }
+.ma-body > h1 { font-size: clamp(28px, 4vw, 43px); letter-spacing: -1.4px; line-height: 1.15; margin: 13px 0 8px; font-weight: 800; }
+.ma-lead { color: var(--ma-muted); line-height: 1.7; font-size: 14px; margin: 0 0 28px; }
+.ma-card { margin: 0 0 19px; padding: clamp(18px, 3vw, 29px); border: 1px solid var(--ma-border); border-radius: 18px; background: #fff; box-shadow: 0 6px 24px rgba(23, 51, 45, .045); }
+.ma-overview-heading { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+.ma-overview-heading h2 { font-size: clamp(21px, 3vw, 29px); letter-spacing: -.65px; margin: 9px 0 0; font-weight: 800; }
+.ma-overview-heading h2 span { color: #a3b9ae; padding: 0 3px; }
+.ma-active-tag { padding: 8px 13px; border-radius: 999px; border: 1px solid #c7e8d0; color: #176b50; background: #eff9f0; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.ma-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.ma-metric { min-width: 0; padding: 17px 18px; border: 1px solid #e3eee5; border-radius: 13px; background: #f6faf6; }
+.ma-metric > span { display: block; color: var(--ma-muted); font-weight: 700; font-size: 12px; margin-bottom: 9px; }
+.ma-metric > strong { color: var(--ma-green-dark); font-size: 31px; letter-spacing: -.8px; line-height: 1.1; }
+.ma-metric small { font-size: 12px; letter-spacing: 0; }
+.ma-time-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding-top: 20px; border-top: 1px solid var(--ma-border); }
+.ma-time-grid div { min-width: 0; }
+.ma-time-grid span { display: block; color: var(--ma-muted); font-size: 11px; margin-bottom: 7px; }
+.ma-time-grid strong { display: block; font-size: 12px; line-height: 1.6; font-weight: 700; }
+.ma-section-heading { display: flex; justify-content: space-between; gap: 15px; align-items: flex-start; margin-bottom: 17px; }
+.ma-section-heading h2 { margin: 0 0 6px; font-size: 19px; font-weight: 800; letter-spacing: -.45px; }
+.ma-section-heading p { color: var(--ma-muted); font-size: 12px; line-height: 1.6; margin: 0; }
+.ma-map-content { border: 1px solid var(--ma-border); border-radius: 12px; overflow: hidden; background: #fbfdfb; }
+.ma-map-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; background: #f6faf6; }
+.ma-coordinates { font-size: 12px; color: #405b4c; font-weight: 650; overflow-wrap: anywhere; }
+.ma-coordinates span { font-size: 18px; color: var(--ma-green); }
+.ma-outbound { color: var(--ma-green-dark); font-weight: 800; font-size: 12px; white-space: nowrap; }
+.ma-outbound:hover { text-decoration: underline; }
+.ma-map-frame { display: block; border: 0; width: 100%; height: 310px; background: #edf4ee; }
+.ma-map-footnote { padding: 10px 15px; color: var(--ma-muted); font-size: 11px; line-height: 1.6; margin: 0; }
+.ma-complaint-count { padding: 9px 13px; background: var(--ma-green-light); border-radius: 10px; color: var(--ma-green); font-size: 15px; font-weight: 800; }
+.ma-cap-note { font-size: 11px; color: var(--ma-muted); margin: -7px 0 17px; }
+.ma-complaints { display: grid; gap: 13px; }
+.ma-complaint { border: 1px solid #e3ece5; border-radius: 14px; padding: 19px; background: #fcfdfc; }
+.ma-complaint-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e8efe9; padding-bottom: 14px; margin-bottom: 15px; }
+.ma-complaint-number { display: block; font-size: 14px; font-weight: 800; margin-bottom: 5px; }
+.ma-report-date { display: block; color: var(--ma-muted); font-size: 11px; line-height: 1.5; }
+.ma-report-status { display: inline-flex; align-items: center; flex: 0 0 auto; background: #eef4ff; color: #3b5a92; border-radius: 999px; padding: 7px 11px; font-size: 11px; font-weight: 800; }
+.ma-report-status--resolved { color: #176b50; background: #e7f3ec; }
+.ma-report-status--rejected { color: #9f4c4c; background: #fdf0ee; }
+.ma-complaint-details { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; }
+.ma-field-label { font-size: 10px; color: var(--ma-muted); text-transform: uppercase; font-weight: 800; letter-spacing: .6px; }
+.ma-complaint-description { margin: 8px 0 14px; color: var(--ma-ink); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ma-small-coordinates { font-size: 11px; color: var(--ma-muted); line-height: 1.7; }
+.ma-photo-link { display: flex; flex-direction: column; flex: 0 0 135px; max-width: 135px; color: var(--ma-green); font-size: 11px; font-weight: 750; }
+.ma-photo-link img { object-fit: cover; border: 1px solid var(--ma-border); border-radius: 10px; width: 135px; height: 100px; background: #ecf4ee; }
+.ma-photo-link span { margin-top: 6px; }
+.ma-muted { color: var(--ma-muted); font-size: 13px; }
+.ma-footer { margin-top: 25px; text-align: center; color: var(--ma-muted); font-size: 11px; line-height: 1.9; }
+.ma-feedback { min-height: 215px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.ma-feedback h2 { font-weight: 800; font-size: 18px; margin: 0; }
+.ma-feedback p { color: var(--ma-muted); font-size: 13px; line-height: 1.6; margin: 0; }
+.ma-feedback-symbol { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 100%; background: #fdf0ee; color: #a65353; font-weight: 800; font-size: 22px; }
+.ma-loader { width: 30px; height: 30px; border: 3px solid #e4efe5; border-top-color: var(--ma-green); border-radius: 100%; animation: ma-spin .7s linear infinite; }
+.ma-primary { border: 0; background: var(--ma-green); color: #fff; border-radius: 10px; padding: 11px 16px; font-weight: 750; cursor: pointer; }
+.ma-primary:hover { background: var(--ma-green-dark); }
+.ma-page :is(a, button):focus-visible { outline: 3px solid #83c6a2; outline-offset: 3px; }
+@keyframes ma-spin { to { transform: rotate(360deg); } }
+@media (max-width: 660px) {
+  .ma-header-inner { min-height: 74px; }
+  .ma-view-label { font-size: 9px; padding: 7px 9px; letter-spacing: 0; }
+  .ma-brand-symbol { width: 40px; height: 40px; }
+  .ma-brand-text strong { font-size: 15px; }
+  .ma-body { padding-top: 29px; }
+  .ma-metrics { gap: 8px; }
+  .ma-metric { padding: 12px 10px; }
+  .ma-metric > span { font-size: 10px; line-height: 1.5; min-height: 28px; }
+  .ma-metric > strong { font-size: 23px; }
+  .ma-metric small { font-size: 9px; }
+  .ma-time-grid { grid-template-columns: 1fr; gap: 13px; }
+  .ma-map-top { flex-wrap: wrap; }
+  .ma-map-frame { height: 240px; }
+  .ma-complaint-details { grid-template-columns: 1fr; }
+  .ma-photo-link { width: fit-content; }
+}
+@media (max-width: 390px) { .ma-view-label { display: none; } }

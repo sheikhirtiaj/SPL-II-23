@@ -7,6 +7,7 @@ import React, {
 
 const CleanupUpload = ({ onSubmit, loading }) => {
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [inspectorComment, setInspectorComment] = useState('');
 
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -193,6 +194,9 @@ const CleanupUpload = ({ onSubmit, loading }) => {
       canvas.height
     );
 
+    // Start GPS lookup in the same capture action as the live camera snapshot.
+    captureLocation();
+
     canvas.toBlob(
       (blob) => {
         if (!blob) {
@@ -222,8 +226,6 @@ const CleanupUpload = ({ onSubmit, loading }) => {
 
         stopCamera();
 
-        // GPS is captured AFTER the live photo
-        captureLocation();
       },
       'image/jpeg',
       0.9
@@ -259,6 +261,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
       file,
       latitude: location.latitude,
       longitude: location.longitude,
+      comment: inspectorComment.trim(),
     });
   };
 
@@ -280,8 +283,8 @@ const CleanupUpload = ({ onSubmit, loading }) => {
             border-gray-300
             rounded-xl
             p-8
-            hover:border-red-400
-            hover:bg-red-50
+            hover:border-emerald-400
+            hover:bg-emerald-50
             transition-colors
           "
         >
@@ -303,7 +306,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
       {cameraOpen && (
         <div className="space-y-3">
 
-          <div className="rounded-xl overflow-hidden border-2 border-red-300 bg-black">
+          <div className="rounded-xl overflow-hidden border-2 border-emerald-300 bg-black">
             <video
               ref={videoRef}
               autoPlay
@@ -320,8 +323,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
               w-full
               py-3.5
               rounded-xl
-              bg-red-600
-              hover:bg-red-700
+              da-detail-primary-button
               text-white
               font-semibold
               shadow-md
@@ -440,10 +442,10 @@ const CleanupUpload = ({ onSubmit, loading }) => {
 
             <button
               type="button"
-              onClick={captureLocation}
+              onClick={handleRetake}
               className="text-blue-600 text-xs underline self-start"
             >
-              Retry GPS
+              Retake photo and GPS together
             </button>
 
           </div>
@@ -457,6 +459,19 @@ const CleanupUpload = ({ onSubmit, loading }) => {
       />
 
       {/* SUBMIT */}
+      <div className="space-y-2">
+        <label htmlFor="inspector-cleanup-comment" className="block text-sm font-semibold text-gray-700">Inspector comment (optional)</label>
+        <textarea
+          id="inspector-cleanup-comment"
+          value={inspectorComment}
+          onChange={(event) => setInspectorComment(event.target.value)}
+          maxLength={500}
+          rows={3}
+          className="w-full rounded-lg border border-gray-300 p-3 text-sm"
+          placeholder="Add a note about the cleanup or anything the councillor should review"
+        />
+      </div>
+
       <button
         type="button"
         onClick={handleSubmit}
@@ -480,7 +495,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
             locationLoading ||
             loading
               ? 'bg-gray-300 cursor-not-allowed'
-              : 'bg-green-600 hover:bg-green-700 active:scale-95 shadow-md'
+              : 'da-detail-primary-button active:scale-95 shadow-md'
           }
         `}
       >

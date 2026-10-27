@@ -31,12 +31,12 @@ const BeforeAfterComparison = ({ beforeUrl, afterUrl, beforeLabel = 'Before Clea
         {/* Before */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0" />
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 flex-shrink-0" />
             <p className="text-sm font-semibold text-gray-700">{beforeLabel}</p>
           </div>
           <button
             onClick={() => beforeUrl && setExpandedImage({ url: beforeUrl, label: beforeLabel })}
-            className="block w-full rounded-xl overflow-hidden border-2 border-red-200 hover:border-red-400 transition-colors"
+            className="block w-full rounded-xl overflow-hidden border-2 border-amber-200 hover:border-amber-400 transition-colors"
           >
             <ImageWithFallback
               src={beforeUrl}

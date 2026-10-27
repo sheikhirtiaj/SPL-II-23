@@ -1,111 +1,97 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
-import Login from './pages/auth/Login';
-import Register from './pages/auth/Register';
-import Dashboard from './pages/Dashboard';
-import CouncillorDashboard from './pages/councillor/CouncillorDashboard';
-import ComplaintDetails from './pages/councillor/ComplaintDetails';
-import InspectorDashboard from './pages/inspector/InspectorDashboard';
-import InspectorComplaintPage from './pages/inspector/InspectorComplaintPage';
+import React from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+} from "react-router-dom";
 
-// Redirect to /login if not authenticated
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
-  if (loading) return null;
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
-};
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { LanguageProvider } from "./i18n/LanguageProvider";
 
-// Redirect based on user role
-const RoleGuard = ({ allowedRoles, children }) => {
-  const { user } = useAuth();
+import LandingPage from "./pages/LandingPage";
+import Login from "./pages/auth/Login";
+import Register from "./pages/auth/Register";
+import VerifyEmail from "./pages/auth/VerifyEmail";
+import Dashboard from "./pages/Dashboard";
+import CouncillorDashboard from "./pages/councillor/CouncillorDashboard";
+import ComplaintDetails from "./pages/councillor/ComplaintDetails";
+import InspectorDashboard from "./pages/inspector/InspectorDashboard";
+import InspectorComplaintPage from "./pages/inspector/InspectorComplaintPage";
+import MasterAdminDashboard from "./pages/admin/MasterAdminDashboard";
+import ReportIssue from "./pages/ReportIssue";
+import MagistrateHotspotDetails from "./pages/MagistrateHotspotDetails";
+import HotspotProximityMonitor from "./components/HotspotProximityMonitor";
+
+function HomeRoute() {
+  return <LandingPage />;
+}
+
+function RoleGuard({ allowedRoles }) {
+  const { user, loading } = useAuth();
+
+  if (loading) return <div className="app-loading">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (!allowedRoles.includes(user.role)) return <Navigate to="/" replace />;
-  return children;
-};
 
-function App() {
-  const { loading } = useAuth();
+  const userRole = String(user.role || "").trim().toLowerCase();
+  const allowed = allowedRoles.map((role) => role.toLowerCase());
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-red-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 text-sm font-medium">Loading…</p>
-        </div>
-      </div>
-    );
+  if (!allowed.includes(userRole)) {
+    if (userRole === "councillor") return <Navigate to="/councillor" replace />;
+    if (userRole === "inspector") return <Navigate to="/inspector" replace />;
+    if (userRole === "master admin") return <Navigate to="/admin" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
+  return <Outlet />;
+}
+
+function AppRoutes() {
   return (
-    <Router>
-      <div className="min-h-screen bg-gray-50">
-        <Routes>
-          {/* Auth */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+    <>
+    <Routes>
+      <Route path="/" element={<HomeRoute />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      {/* Public, read-only hotspot view; access is controlled by a 48-hour token. */}
+      <Route path="/magistrate-alert/:token" element={<MagistrateHotspotDetails />} />
 
-          {/* Home — role-based router */}
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
+      <Route element={<RoleGuard allowedRoles={["citizen"]} />}>
+        <Route path="/report" element={<ReportIssue />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+      </Route>
 
-          {/* Councillor routes */}
-          <Route
-            path="/councillor"
-            element={
-              <ProtectedRoute>
-                <RoleGuard allowedRoles={['Councillor', 'Master Admin']}>
-                  <CouncillorDashboard />
-                </RoleGuard>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/councillor/complaint/:id"
-            element={
-              <ProtectedRoute>
-                <RoleGuard allowedRoles={['Councillor', 'Master Admin']}>
-                  <ComplaintDetails />
-                </RoleGuard>
-              </ProtectedRoute>
-            }
-          />
+      <Route element={<RoleGuard allowedRoles={["councillor"]} />}>
+        <Route path="/councillor" element={<CouncillorDashboard />} />
+        <Route path="/councillor/complaint/:id" element={<ComplaintDetails />} />
+      </Route>
 
-          {/* Inspector routes */}
-          <Route
-            path="/inspector"
-            element={
-              <ProtectedRoute>
-                <RoleGuard allowedRoles={['Inspector']}>
-                  <InspectorDashboard />
-                </RoleGuard>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/inspector/complaint/:id"
-            element={
-              <ProtectedRoute>
-                <RoleGuard allowedRoles={['Inspector']}>
-                  <InspectorComplaintPage />
-                </RoleGuard>
-              </ProtectedRoute>
-            }
-          />
+      <Route element={<RoleGuard allowedRoles={["inspector"]} />}>
+        <Route path="/inspector" element={<InspectorDashboard />} />
+        <Route path="/inspector/complaint/:id" element={<InspectorComplaintPage />} />
+      </Route>
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </div>
-    </Router>
+      <Route element={<RoleGuard allowedRoles={["master admin"]} />}>
+        <Route path="/admin" element={<MasterAdminDashboard />} />
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+    <HotspotProximityMonitor />
+    </>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <LanguageProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </LanguageProvider>
+  );
+}
