@@ -4,7 +4,7 @@
   "description": "dengue-alert-system",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "repository": {
     "type": "git",
@@ -28,6 +28,8 @@
     "firebase-admin": "^14.5.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
-    "pg": "^8.23.0"
+    "nodemailer": "^10.1.2",
+    "pg": "^8.23.0",
+    "google-auth-library": "^11.1.0"
   }
 }
