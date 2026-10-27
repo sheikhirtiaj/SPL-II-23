@@ -21,9 +21,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
 
-  // ----------------------------
   // Stop camera
-  // ----------------------------
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
@@ -36,9 +34,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     setCameraOpen(false);
   }, []);
 
-  // ----------------------------
   // Attach camera stream to video
-  // ----------------------------
   useEffect(() => {
     if (
       cameraOpen &&
@@ -53,9 +49,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     }
   }, [cameraOpen]);
 
-  // ----------------------------
   // Cleanup camera on unmount
-  // ----------------------------
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -66,9 +60,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     };
   }, []);
 
-  // ----------------------------
   // Cleanup preview object URL
-  // ----------------------------
   useEffect(() => {
     return () => {
       if (preview) {
@@ -77,9 +69,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     };
   }, [preview]);
 
-  // ----------------------------
-  // Capture GPS
-  // ----------------------------
+  // Capture GPS location
   const captureLocation = () => {
     setLocation(null);
     setLocationError('');
@@ -122,9 +112,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     );
   };
 
-  // ----------------------------
-  // Open LIVE camera
-  // ----------------------------
+  // Open live camera
   const startCamera = async () => {
     setCameraError('');
 
@@ -162,9 +150,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     }
   };
 
-  // ----------------------------
-  // Capture photo from LIVE video
-  // ----------------------------
+  // Capture photo from live video
   const capturePhoto = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -230,9 +216,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     );
   };
 
-  // ----------------------------
   // Retake photo
-  // ----------------------------
   const handleRetake = async () => {
     setFile(null);
     setLocation(null);
@@ -247,9 +231,7 @@ const CleanupUpload = ({ onSubmit, loading }) => {
     await startCamera();
   };
 
-  // ----------------------------
-  // Submit
-  // ----------------------------
+  // Submit cleanup evidence
   const handleSubmit = () => {
     if (!file || !location) {
       return;
