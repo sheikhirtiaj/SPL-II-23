@@ -20,16 +20,6 @@ const parseStoredUser = () => {
   }
 };
 
-const buildLoginPayload = (identifier, password) => {
-  const trimmedIdentifier = identifier.trim();
-  const identifierKey = trimmedIdentifier.includes('@') ? 'email' : 'phone_number';
-
-  return {
-    [identifierKey]: trimmedIdentifier,
-    password,
-  };
-};
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -37,10 +27,32 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     setUser(parseStoredUser());
     setLoading(false);
+
+    // Keep React state in sync when the API interceptor detects an expired token.
+    const handleSessionExpired = () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setUser(null);
+    };
+
+    // Sync account changes made in another browser tab.
+    const handleStorage = (event) => {
+      if (event.key === 'token' || event.key === 'user') {
+        setUser(parseStoredUser());
+      }
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
-  const login = async (identifier, password) => {
-    const res = await api.post('/users/login', buildLoginPayload(identifier, password));
+  const login = async (email, password) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const res = await api.post('/users/login', { email: normalizedEmail, password });
     const { success, token, user: loggedInUser, message } = res.data || {};
 
     if (!success || !token || !loggedInUser) {
@@ -54,11 +66,24 @@ export const AuthProvider = ({ children }) => {
     return loggedInUser;
   };
 
+  const googleSignIn = async (credential) => {
+    const res = await api.post('/users/google-auth', { credential });
+    const { success, token, user: loggedInUser, message } = res.data || {};
+
+    if (!success || !token || !loggedInUser) {
+      throw new Error(message || 'Google sign-in failed');
+    }
+
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(loggedInUser));
+    setUser(loggedInUser);
+    return loggedInUser;
+  };
+
   const register = async (userData) => {
     const payload = {
-      full_name: userData.full_name.trim(),
-      email: userData.email.trim(),
-      phone_number: userData.phone_number.trim(),
+      full_name: userData.full_name?.trim() || null,
+      email: userData.email?.trim().toLowerCase() || null,
       role: userData.role,
       password: userData.password,
     };
@@ -77,13 +102,14 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
-    window.location.href = '/login';
+    window.location.replace('/');
   };
 
   const value = useMemo(
     () => ({
       user,
       login,
+      googleSignIn,
       logout,
       register,
       loading,

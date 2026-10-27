@@ -1,370 +1,573 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import api from '../axios';
-import MasterAdminPanel from './MasterAdminPanel';
+import React, { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../axios";
+import { useAuth } from "../context/AuthContext";
 
-const verifyRoles = ['Councillor', 'Master Admin'];
-
-const getStatusClass = (status) => {
-  switch (status) {
-    case 'Resolved':
-      return 'bg-green-100 text-green-800';
-    case 'Pending':
-      return 'bg-yellow-100 text-yellow-800';
-    case 'Assigned':
-      return 'bg-blue-100 text-blue-800';
-    case 'Pending Verification':
-      return 'bg-purple-100 text-purple-800';
-    case 'Re-assigned':
-      return 'bg-red-100 text-red-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
-};
-
-const formatDate = (dateValue) => {
-  if (!dateValue) {
-    return 'Unknown date';
+function getReportsFromResponse(responseData) {
+  if (Array.isArray(responseData)) {
+    return responseData;
   }
 
-  const date = new Date(dateValue);
-  return Number.isNaN(date.getTime()) ? 'Unknown date' : date.toLocaleString();
-};
+  if (Array.isArray(responseData?.data)) {
+    return responseData.data;
+  }
 
-const Dashboard = () => {
+  if (Array.isArray(responseData?.reports)) {
+    return responseData.reports;
+  }
+
+  if (Array.isArray(responseData?.data?.reports)) {
+    return responseData.data.reports;
+  }
+
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) return "Date unavailable";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Date unavailable";
+  }
+
+  return date.toLocaleString();
+}
+
+function getStatusClass(status) {
+  const normalized = String(status || "pending").toLowerCase();
+
+  if (
+    normalized.includes("resolved") ||
+    normalized.includes("completed")
+  ) {
+    return "status-resolved";
+  }
+
+  if (normalized.includes("rejected")) {
+    return "status-rejected";
+  }
+
+  if (
+    normalized.includes("progress") ||
+    normalized.includes("assigned") ||
+    normalized.includes("investigating")
+  ) {
+    return "status-progress";
+  }
+
+  return "status-pending";
+}
+
+function getReportId(report) {
+  return report.report_id ?? report.id ?? report._id;
+}
+
+export default function Dashboard() {
   const { user, logout } = useAuth();
+
   const [reports, setReports] = useState([]);
-  
-  const [form, setForm] = useState({
-    description: '',
-  });
-  const [afterPhotoUrls, setAfterPhotoUrls] = useState({});
-  const [inspectorIds, setInspectorIds] = useState({});
-  const [msg, setMsg] = useState('');
-  const [error, setError] = useState('');
-  const [loadingReports, setLoadingReports] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const notify = (text, type = 'success') => {
-    if (type === 'error') {
-      setError(text);
-      setMsg('');
-    } else {
-      setMsg(text);
-      setError('');
-    }
-
-    setTimeout(() => {
-      setMsg('');
-      setError('');
-    }, 4500);
-  };
-
-  const fetchReports = async () => {
-    setLoadingReports(true);
+  const fetchReports = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
     try {
-      const res = await api.get('/reports');
-      setReports(Array.isArray(res.data?.data) ? res.data.data : []);
+      const response = await api.get("/reports");
+      const fetchedReports = getReportsFromResponse(response.data);
+
+      setReports(fetchedReports);
     } catch (err) {
-      notify(err.response?.data?.message || 'Failed to load reports from backend', 'error');
+      console.error("Failed to fetch reports:", err);
+
+      setError(
+        err.response?.data?.message ||
+          "Unable to load reports. Please try again."
+      );
     } finally {
-      setLoadingReports(false);
+      setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [fetchReports]);
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
+  const totalReports = reports.length;
 
-    try {
-      // CHANGED: only sending description; longitude, latitude, before_photo_url removed
-      const res = await api.post('/reports', {
-        description: form.description.trim(),
-      });
+  const resolvedReports = reports.filter((report) => {
+    const status = String(report.status || "").toLowerCase();
 
-      notify(res.data?.message || 'Report submitted successfully');
-      // CHANGED: reset only description
-      setForm({ description: '' });
-      fetchReports();
-    } catch (err) {
-      notify(err.response?.data?.message || 'Failed to submit report', 'error');
-    }
-  };
+    return status.includes("resolved") || status.includes("completed");
+  }).length;
 
-  const handleAssign = async (reportId) => {
-    const inspectorId = inspectorIds[reportId];
+  const pendingReports = reports.filter((report) => {
+    const status = String(report.status || "pending").toLowerCase();
 
-    if (!inspectorId) {
-      notify('Enter an Inspector ID', 'error');
-      return;
-    }
+    return (
+      status.includes("pending") ||
+      status.includes("submitted") ||
+      status.includes("open")
+    );
+  }).length;
 
-    try {
-      const res = await api.patch(`/reports/${reportId}/assign`, {
-        inspector_id: Number(inspectorId),
-      });
+  const inProgressReports = reports.filter((report) => {
+    const status = String(report.status || "").toLowerCase();
 
-      notify(res.data?.message || 'Task assigned successfully');
-      setInspectorIds((current) => ({ ...current, [reportId]: '' }));
-      fetchReports();
-    } catch (err) {
-      fetchReports();
-      notify(
-        err.response?.data?.message ||
-          'Assignment request reached the backend, but the backend did not return a success response',
-        'error'
-      );
-    }
-  };
-
-  const handleAfterPhoto = async (reportId) => {
-    const afterPhotoUrl = afterPhotoUrls[reportId]?.trim();
-
-    if (!afterPhotoUrl) {
-      notify('Enter the After Photo URL', 'error');
-      return;
-    }
-
-    try {
-      const res = await api.patch(`/reports/${reportId}`, {
-        after_photo_url: afterPhotoUrl,
-      });
-
-      notify(res.data?.message || 'After photo uploaded');
-      setAfterPhotoUrls((current) => ({ ...current, [reportId]: '' }));
-      fetchReports();
-    } catch (err) {
-      notify(err.response?.data?.message || 'Upload failed', 'error');
-    }
-  };
-
-  const handleVerify = async (reportId, approved) => {
-    try {
-      const res = await api.patch(`/reports/${reportId}/verify`, {
-        is_approved: approved,
-      });
-
-      notify(res.data?.message || (approved ? 'Report resolved' : 'Report rejected and re-assigned'));
-      fetchReports();
-    } catch (err) {
-      notify(err.response?.data?.message || 'Verification failed', 'error');
-    }
-  };
-
-  const canVerify = verifyRoles.includes(user?.role);
+    return (
+      status.includes("progress") ||
+      status.includes("assigned") ||
+      status.includes("investigating")
+    );
+  }).length;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-          <h1 className="text-3xl font-bold text-gray-800">Dengue Alert System</h1>
-          <div className="flex items-center gap-4">
-            {user && (
-              <span className="text-gray-700">
-                Welcome, <strong>{user.full_name}</strong>{' '}
-                <span className="text-sm text-gray-500">({user.role})</span>
-              </span>
-            )}
+    <main className="citizen-dashboard">
+      <style>{`
+        .citizen-dashboard {
+          min-height: 100vh;
+          padding: 32px 20px 48px;
+          background: #f5f8f6;
+          color: #18352b;
+          font-family: Arial, sans-serif;
+        }
 
-            {user ? (
-              <button
-                onClick={logout}
-                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-              >
-                Logout
-              </button>
-            ) : (
-              <div className="space-x-2">
-                <Link
-                  to="/login"
-                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                >
-                  Login
-                </Link>
-                <Link
-                  to="/register"
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                >
-                  Register
-                </Link>
-              </div>
-            )}
+        .dashboard-container {
+          max-width: 1100px;
+          margin: 0 auto;
+        }
+
+        .dashboard-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 20px;
+          flex-wrap: wrap;
+          margin-bottom: 28px;
+        }
+
+        .dashboard-header h1 {
+          margin: 0 0 8px;
+          font-size: clamp(26px, 4vw, 34px);
+        }
+
+        .dashboard-header p {
+          margin: 0;
+          color: #64756c;
+          line-height: 1.5;
+        }
+
+        .dashboard-primary-button {
+          display: inline-block;
+          padding: 13px 19px;
+          border-radius: 9px;
+          background: #16804a;
+          color: #fff;
+          text-decoration: none;
+          font-weight: 700;
+          border: none;
+          cursor: pointer;
+        }
+
+        .dashboard-primary-button:hover {
+          background: #10683b;
+        }
+
+        .dashboard-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .dashboard-logout-button {
+          display: inline-block;
+          padding: 13px 19px;
+          border-radius: 9px;
+          background: #fff;
+          color: #23543b;
+          font-weight: 700;
+          border: 1px solid #cbdacf;
+          cursor: pointer;
+        }
+
+        .dashboard-logout-button:hover {
+          background: #eef5f0;
+        }
+
+        .dashboard-stats {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 16px;
+          margin-bottom: 32px;
+        }
+
+        .status-rejected {
+          color: #991b1b !important;
+          background: #fee2e2 !important;
+          border-color: #fecaca !important;
+        }
+
+        .dashboard-rejection-reason {
+          margin-top: 12px;
+          padding: 12px 14px;
+          border-left: 4px solid #b91c1c;
+          border-radius: 8px;
+          background: #fff1f2;
+          color: #7f1d1d;
+          font-size: 13px;
+          line-height: 1.55;
+          overflow-wrap: anywhere;
+        }
+
+        .dashboard-rejection-reason strong {
+          display: block;
+          margin-bottom: 3px;
+        }
+
+        .dashboard-stat {
+          padding: 22px;
+          background: #fff;
+          border: 1px solid #e2ebe5;
+          border-radius: 12px;
+          box-shadow: 0 3px 12px rgba(24, 53, 43, 0.04);
+        }
+
+        .dashboard-stat-label {
+          margin-bottom: 12px;
+          color: #65766c;
+          font-size: 14px;
+        }
+
+        .dashboard-stat-number {
+          font-size: 30px;
+          font-weight: 700;
+        }
+
+        .dashboard-section {
+          padding: 24px;
+          background: #fff;
+          border: 1px solid #e2ebe5;
+          border-radius: 12px;
+          box-shadow: 0 3px 12px rgba(24, 53, 43, 0.04);
+        }
+
+        .dashboard-section-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .dashboard-section-header h2 {
+          margin: 0;
+          font-size: 21px;
+        }
+
+        .dashboard-refresh {
+          padding: 9px 13px;
+          border: 1px solid #cbdacf;
+          border-radius: 8px;
+          background: #fff;
+          color: #23543b;
+          cursor: pointer;
+          font-weight: 600;
+        }
+
+        .dashboard-report-list {
+          display: grid;
+          gap: 14px;
+        }
+
+        .dashboard-report {
+          padding: 18px;
+          border: 1px solid #e6ece8;
+          border-radius: 10px;
+        }
+
+        .dashboard-report-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-bottom: 10px;
+        }
+
+        .dashboard-report h3 {
+          margin: 0;
+          font-size: 17px;
+          overflow-wrap: anywhere;
+        }
+
+        .dashboard-report p {
+          margin: 8px 0;
+          color: #53665b;
+          line-height: 1.55;
+          overflow-wrap: anywhere;
+        }
+
+        .dashboard-report-meta {
+          color: #78877e;
+          font-size: 13px;
+          margin-top: 7px;
+          overflow-wrap: anywhere;
+        }
+
+        .dashboard-report-evidence {
+          display: block;
+          width: min(220px, 100%);
+          max-height: 180px;
+          object-fit: cover;
+          margin-top: 12px;
+          border: 1px solid #e2ebe5;
+          border-radius: 9px;
+          background: #f5f8f6;
+        }
+
+        .dashboard-status {
+          display: inline-block;
+          padding: 6px 10px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: capitalize;
+          white-space: nowrap;
+        }
+
+        .status-pending {
+          background: #fff2d7;
+          color: #805500;
+        }
+
+        .status-progress {
+          background: #e2efff;
+          color: #1d5591;
+        }
+
+        .status-resolved {
+          background: #dff5e7;
+          color: #17663a;
+        }
+
+        .dashboard-message {
+          padding: 18px;
+          border-radius: 9px;
+          background: #f5f8f6;
+          color: #53665b;
+          line-height: 1.5;
+        }
+
+        .dashboard-error {
+          margin-bottom: 18px;
+          padding: 14px;
+          border-radius: 9px;
+          background: #fff0ef;
+          color: #9a2b25;
+        }
+
+        @media (max-width: 760px) {
+          .dashboard-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .dashboard-section {
+            padding: 17px;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .citizen-dashboard {
+            padding: 24px 13px 36px;
+          }
+
+          .dashboard-stats {
+            gap: 10px;
+          }
+
+          .dashboard-stat {
+            padding: 16px;
+          }
+
+          .dashboard-stat-number {
+            font-size: 25px;
+          }
+
+          .dashboard-primary-button {
+            width: 100%;
+            text-align: center;
+            box-sizing: border-box;
+          }
+        }
+      `}</style>
+
+      <div className="dashboard-container">
+        <header className="dashboard-header">
+          <div>
+            <h1>
+              Welcome
+              {(user?.full_name || user?.name) ? `, ${user.full_name || user.name}` : ""}
+            </h1>
+            <p>
+              Track dengue-related reports and help keep your community safe.
+            </p>
           </div>
-        </div>
 
-        {msg && (
-          <div className="mb-4 p-3 bg-green-100 text-green-800 rounded border border-green-200">
-            {msg}
+          <div className="dashboard-header-actions">
+            <Link to="/" className="dashboard-logout-button" style={{ textDecoration: "none" }}>Home</Link>
+            <Link to="/report" className="dashboard-primary-button">
+              + Report an Issue
+            </Link>
+            <button type="button" onClick={logout} className="dashboard-logout-button">
+              Logout / Switch account
+            </button>
           </div>
-        )}
+        </header>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-800 rounded border border-red-200">
-            {error}
+        <section className="dashboard-stats" aria-label="Report statistics">
+          <div className="dashboard-stat">
+            <div className="dashboard-stat-label">Total Reports</div>
+            <div className="dashboard-stat-number">{totalReports}</div>
           </div>
-        )}
 
-        {!user && (
-          <div className="bg-white p-4 rounded shadow mb-6 text-gray-700">
-            Login to access role based actions. Public reports are still shown below.
+          <div className="dashboard-stat">
+            <div className="dashboard-stat-label">Pending</div>
+            <div className="dashboard-stat-number">{pendingReports}</div>
           </div>
-        )}
 
-        {user?.role === 'Master Admin' && <MasterAdminPanel />}
-
-        {user?.role === 'Citizen' && (
-          <div className="bg-white p-6 rounded shadow mb-6">
-            <h2 className="text-xl font-bold mb-4">Report a Hotspot</h2>
-            {/* CHANGED: form now has only description field; grid changed to single column */}
-            <form onSubmit={handleCreate} className="flex flex-col gap-4">
-              <input
-                type="text"
-                placeholder="Description"
-                className="p-2 border rounded"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                required
-              />
-              <button
-                type="submit"
-                className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 font-semibold"
-              >
-                Submit Report
-              </button>
-            </form>
+          <div className="dashboard-stat">
+            <div className="dashboard-stat-label">In Progress</div>
+            <div className="dashboard-stat-number">{inProgressReports}</div>
           </div>
-        )}
 
-        <div className="bg-white p-6 rounded shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">All Reports</h2>
+          <div className="dashboard-stat">
+            <div className="dashboard-stat-label">Resolved</div>
+            <div className="dashboard-stat-number">{resolvedReports}</div>
+          </div>
+        </section>
+
+        <section className="dashboard-section">
+          <div className="dashboard-section-header">
+            <h2>Recent Reports</h2>
+
             <button
+              type="button"
+              className="dashboard-refresh"
               onClick={fetchReports}
-              className="text-sm bg-gray-100 px-3 py-1 rounded hover:bg-gray-200"
+              disabled={loading}
             >
-              Refresh
+              {loading ? "Refreshing..." : "Refresh"}
             </button>
           </div>
 
-          <div className="space-y-4">
-            {loadingReports && <p className="text-gray-500">Loading reports...</p>}
-            {!loadingReports && reports.length === 0 && <p className="text-gray-500">No reports yet.</p>}
+          {error && (
+            <div className="dashboard-error" role="alert">
+              {error}
+              <button
+                type="button"
+                className="dashboard-refresh"
+                onClick={fetchReports}
+                style={{ marginLeft: 12 }}
+              >
+                Try again
+              </button>
+            </div>
+          )}
 
-            {reports.map((r) => (
-              <div key={r.report_id} className="border rounded p-4 flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-bold text-gray-900">#{r.report_id}</span>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusClass(r.status)}`}>
-                      {r.status}
-                    </span>
-                  </div>
-                  <p className="text-gray-700 mb-1">{r.description}</p>
-                  <p className="text-sm text-gray-500 mb-2">
-                    Ward {r.ward_id || 'N/A'} - {formatDate(r.created_at)}
-                  </p>
-
-                  <div className="flex gap-2 flex-wrap">
-                    {r.before_photo_url && (
-                      <img
-                        src={r.before_photo_url}
-                        alt="Before"
-                        className="w-24 h-24 object-cover rounded border"
-                      />
-                    )}
-                    {r.after_photo_url && (
-                      <img
-                        src={r.after_photo_url}
-                        alt="After"
-                        className="w-24 h-24 object-cover rounded border"
-                      />
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2 min-w-[220px]">
-                  {user?.role === 'Councillor' && r.status === 'Pending' && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-gray-600">Assign to Inspector</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          placeholder="ID"
-                          className="p-1 border rounded w-20"
-                          value={inspectorIds[r.report_id] || ''}
-                          onChange={(e) =>
-                            setInspectorIds((current) => ({ ...current, [r.report_id]: e.target.value }))
-                          }
-                        />
-                        <button
-                          onClick={() => handleAssign(r.report_id)}
-                          className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
-                        >
-                          Assign
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {user?.role === 'Inspector' &&
-                    r.status === 'Assigned' &&
-                    Number(r.assigned_inspector_id) === Number(user.user_id) && (
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-600">Upload After Photo</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="url"
-                            placeholder="URL"
-                            className="p-1 border rounded flex-1"
-                            value={afterPhotoUrls[r.report_id] || ''}
-                            onChange={(e) =>
-                              setAfterPhotoUrls((current) => ({
-                                ...current,
-                                [r.report_id]: e.target.value,
-                              }))
-                            }
-                          />
-                          <button
-                            onClick={() => handleAfterPhoto(r.report_id)}
-                            className="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700"
-                          >
-                            Upload
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                  {canVerify && r.status === 'Pending Verification' && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-gray-600">Verify Cleanup</label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleVerify(r.report_id, true)}
-                          className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleVerify(r.report_id, false)}
-                          className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+          {loading ? (
+            <div className="dashboard-message">Loading reports...</div>
+          ) : reports.length === 0 ? (
+            <div className="dashboard-message">
+              No reports were found. If you have identified a possible dengue
+              breeding site, submit a report so it can be addressed.
+              <div style={{ marginTop: 15 }}>
+                <Link
+                  to="/report"
+                  className="dashboard-primary-button"
+                >
+                  Submit Your First Report
+                </Link>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+            </div>
+          ) : (
+            <div className="dashboard-report-list">
+              {reports.map((report, index) => {
+                const reportId = getReportId(report);
+                const status = report.status || "Pending";
+                const description =
+                  report.description ||
+                  report.issue_type ||
+                  "No description provided.";
 
-export default Dashboard;
+                return (
+                  <article
+                    className="dashboard-report"
+                    key={reportId ?? index}
+                  >
+                    <div className="dashboard-report-top">
+                      <h3>
+                        Report #{reportId ?? index + 1}
+                      </h3>
+
+                      <span
+                        className={`dashboard-status ${getStatusClass(status)}`}
+                      >
+                        {String(status).replace(/[_-]/g, " ")}
+                      </span>
+                    </div>
+
+                    <p translate="no">{description}</p>
+
+                    {String(status).toLowerCase() === "rejected" && (
+                      <div className="dashboard-rejection-reason" role="note" aria-label="Reason for rejection">
+                        <strong>Reason for rejection</strong>
+                        {String(report.rejection_reason || report.councillor_note || "").trim() || "No rejection reason was recorded for this complaint."}
+                      </div>
+                    )}
+
+                    <div className="dashboard-report-meta">
+                      Submitted:{" "}
+                      {formatDate(
+                        report.created_at ||
+                          report.createdAt ||
+                          report.submitted_at
+                      )}
+                    </div>
+
+                    <div className="dashboard-report-meta">
+                      Ward: {report.ward_number != null
+                        ? `${report.corporation_code ? `${report.corporation_code} · ` : ""}${report.ward_number}`
+                        : report.ward_id != null ? `Ward ID ${report.ward_id}` : "Not assigned / outside mapped wards"}
+                    </div>
+
+                    {report.latitude != null && report.longitude != null && (
+                      <div className="dashboard-report-meta">
+                        Location: {report.latitude}, {report.longitude}
+                      </div>
+                    )}
+
+                    {report.before_photo_url && (
+                      <a href={report.before_photo_url} target="_blank" rel="noreferrer" aria-label={`Open original photo for report ${reportId}`}>
+                        <img
+                          className="dashboard-report-evidence"
+                          src={report.before_photo_url}
+                          alt={`Original evidence for report ${reportId}`}
+                          loading="lazy"
+                        />
+                      </a>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}

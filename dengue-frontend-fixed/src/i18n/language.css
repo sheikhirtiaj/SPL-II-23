@@ -1,0 +1,5 @@
+/* Fixed, mobile-friendly language choice on every public and authenticated page. */
+.da-language-switcher { position: fixed; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); left: 12px; z-index: 1000; display: flex; gap: 3px; padding: 4px; background: #ffffff; border: 1px solid #bbd6c5; border-radius: 999px; box-shadow: 0 4px 18px rgba(10, 60, 37, .18); font-family: system-ui, sans-serif; }
+.da-language-switcher button { border: 0; border-radius: 999px; background: transparent; color: #19583d; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.da-language-switcher button.active { color: #fff; background: #176c47; }
+.da-language-switcher button:focus-visible { outline: 2px solid #0d5b3a; outline-offset: 2px; }
