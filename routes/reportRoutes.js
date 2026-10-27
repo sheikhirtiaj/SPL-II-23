@@ -7,6 +7,7 @@ const authorization = require('../middleware/rolemiddleware')
 const cloudinary = require('../config/cloudinary');
 const upload = require('../middleware/upload');
 const { evaluateHotspotForReport } = require('../services/hotspotService');
+const { createAndSendMagistrateAlert } = require('../services/magistrateAlertService');
 
 router.get('/', verify, async (req, res) => {
     try {
@@ -24,25 +25,40 @@ router.get('/', verify, async (req, res) => {
 
             query = `
                 SELECT r.* FROM reports r
-                JOIN wards w ON r.ward_id = w.ward_id WHERE w.councillor_id = $1 ORDER BY r.created_at DESC
+                JOIN wards w ON r.ward_id = w.ward_id
+                WHERE w.councillor_id = $1 AND r.status <> 'Rejected'
+                ORDER BY r.created_at DESC
             `;
             params = [user_id];
 
         } else if (role === 'Inspector') {
             query = `
                 SELECT r.* FROM reports r
-                WHERE r.assigned_inspector_id = $1 ORDER BY r.created_at DESC
+                WHERE r.assigned_inspector_id = $1 AND r.status <> 'Rejected'
+                ORDER BY r.created_at DESC
             `;
             params = [user_id];
 
-        } else if (role === 'Citizen') {
-            // Return only public complaint fields.
+          } else if (role === 'Citizen') {
             query = `
                 SELECT
-                    report_id, description, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at
-                FROM reports
-                ORDER BY created_at DESC
+                    r.report_id, r.description, r.ward_id, w.ward_number, w.corporation_code,
+                    r.before_photo_url, r.after_photo_url, r.status, r.created_at, r.updated_at,
+                    r.councillor_note AS rejection_reason,
+                    CASE
+                        WHEN r.location IS NOT NULL THEN ST_Y(r.location)::double precision
+                        ELSE NULL
+                    END AS latitude,
+                    CASE
+                        WHEN r.location IS NOT NULL THEN ST_X(r.location)::double precision
+                        ELSE NULL
+                    END AS longitude
+                FROM reports r
+                LEFT JOIN wards w ON w.ward_id = r.ward_id
+                WHERE r.citizen_user_id = $1
+                ORDER BY r.created_at DESC
             `;
+            params = [user_id];
         } else {
             return res.status(403).json({
                 success: false,
@@ -72,65 +88,32 @@ router.get('/', verify, async (req, res) => {
 });
 
 
-router.post('/', upload.single('before_photo'), async (req, res) => {
-  let client;
-  let transactionOpen = false;
+router.post(
+  '/',
+  verify,
+  authorization('Citizen'),
+  upload.single('before_photo'),
+  async (req, res) => {
+    let client;
+    let transactionOpen = false;
+    let reportCommitted = false;
+    let uploadedPublicId = null;
+    let citizenUserId = null;
+    let longitude = null;
+    let latitude = null;
 
-  try {
-    const { description } = req.body;
-    const longitudeRaw = req.body.longitude;
-    const latitudeRaw = req.body.latitude;
+    const getErrorMessage = (error) => {
+      if (error instanceof Error) return error.message;
+      if (typeof error === 'string') return error;
+      try {
+        const serialized = JSON.stringify(error);
+        return serialized === undefined ? String(error) : serialized;
+      } catch (_) {
+        return String(error);
+      }
+    };
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Before photo was not received'
-      });
-    }
-
-    if (
-      longitudeRaw === undefined || String(longitudeRaw).trim() === '' ||
-      latitudeRaw === undefined || String(latitudeRaw).trim() === ''
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Location is required'
-      });
-    }
-
-    const longitude = Number(longitudeRaw);
-    const latitude = Number(latitudeRaw);
-
-    if (
-      !Number.isFinite(longitude) ||
-      !Number.isFinite(latitude) ||
-      longitude < -180 || longitude > 180 ||
-      latitude < -90 || latitude > 90
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid GPS coordinates are required'
-      });
-    }
-
-    if (!req.file.mimetype?.startsWith('image/')) {
-      return res.status(400).json({
-        success: false,
-        message: 'The before photo must be an image'
-      });
-    }
-
-    const cloudinaryResult = await cloudinary.uploader.upload(
-      `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
-      { folder: 'hazard_reports', resource_type: 'image' }
-    );
-    const before_photo_url = cloudinaryResult.secure_url;
-
-    client = await pool.connect();
-    await client.query('BEGIN');
-    transactionOpen = true;
-
-    const wardResult = await client.query(
+    const findWard = async (db) => db.query(
       `
       SELECT ward_id, ward_number, corporation_code
       FROM wards
@@ -141,48 +124,263 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
           4326
         )
       )
+      ORDER BY ward_id
       LIMIT 1
       `,
       [longitude, latitude]
     );
 
-    const detectedWard = wardResult.rows[0] || null;
-    const detectedWardId = detectedWard ? detectedWard.ward_id : null;
-
-    if (detectedWard) {
-      console.log(
-        'Ward detected:',
-        detectedWard.corporation_code,
-        'Ward',
-        detectedWard.ward_number
-      );
-    } else {
-      console.log('No ward found for submitted GPS location');
-    }
-
-    const newReport = await client.query(
-      `
-      INSERT INTO reports
-        (description, location, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at)
-      VALUES
-        ($1, ST_SetSRID(ST_MakePoint($2::double precision, $3::double precision), 4326), $4, $5, NULL, 'Pending', NOW(), NOW())
-      RETURNING *
-      `,
-      [description || null, longitude, latitude, detectedWardId, before_photo_url]
-    );
-
-    let hotspotDetection = {
-      evaluated: false,
-      reason: 'ward_not_detected',
-      threshold_reached: false,
-      hotspot: null
+    const logWardDiagnostic = async (db) => {
+      try {
+        const diagnostic = await db.query(
+          `SELECT
+             current_database() AS database_name,
+             COUNT(*)::integer AS ward_count,
+             ST_Extent(boundaries)::text AS ward_extent
+           FROM wards`
+        );
+        const row = diagnostic.rows[0] || {};
+        const details = {
+          database: row.database_name,
+          wardCount: row.ward_count,
+          wardExtent: row.ward_extent,
+          coordinateOrder: 'longitude, latitude'
+        };
+        // Exact coordinates are useful in local debugging but should not be
+        // written to production logs by default.
+        if (process.env.NODE_ENV !== 'production') {
+          details.longitude = longitude;
+          details.latitude = latitude;
+        }
+        console.warn('[POST /api/reports] GPS point did not match a ward:', details);
+      } catch (diagnosticError) {
+        console.warn(
+          '[POST /api/reports] Could not collect ward diagnostics:',
+          getErrorMessage(diagnosticError)
+        );
+      }
     };
 
-    if (detectedWardId) {
-      // Hotspot detection is isolated by a savepoint. If the hotspot table or
-      // its query fails, the complaint itself can still be committed.
-      await client.query('SAVEPOINT hotspot_detection');
+    try {
+      const { description } = req.body || {};
 
+      // The verified JWT must contain the database user's actual user_id.
+      const rawUserId = req.user?.user_id;
+      citizenUserId = Number(rawUserId);
+      if (!Number.isSafeInteger(citizenUserId) || citizenUserId <= 0) {
+        console.warn('[POST /api/reports] Verified token has no valid user_id claim:', {
+          claimType: typeof rawUserId,
+          role: req.user?.role
+        });
+        return res.status(401).json({
+          success: false,
+          message: 'Your session is invalid. Please log in again.'
+        });
+      }
+
+      // Check the token's user against THIS database before uploading a photo.
+      const authenticatedUserResult = await pool.query(
+        'SELECT user_id, role, current_database() AS database_name FROM users WHERE user_id = $1',
+        [citizenUserId]
+      );
+
+      if (authenticatedUserResult.rowCount === 0) {
+        let connectedDatabase = null;
+        try {
+          const databaseResult = await pool.query('SELECT current_database() AS database_name');
+          connectedDatabase = databaseResult.rows[0]?.database_name || null;
+        } catch (_) {
+          // Keep the primary authentication response even if diagnostics fail.
+        }
+        console.warn('[POST /api/reports] Token user_id does not exist in the connected database:', {
+          userId: citizenUserId,
+          database: connectedDatabase
+        });
+        return res.status(401).json({
+          success: false,
+          message: 'Your account could not be verified. Please log out and log in again.'
+        });
+      }
+
+      if (authenticatedUserResult.rows[0].role !== 'Citizen') {
+        console.warn('[POST /api/reports] Token role does not match the database role:', {
+          userId: citizenUserId,
+          tokenRole: req.user?.role,
+          databaseRole: authenticatedUserResult.rows[0].role,
+          database: authenticatedUserResult.rows[0].database_name
+        });
+        return res.status(403).json({
+          success: false,
+          message: 'Only an authenticated citizen can submit a report.'
+        });
+      }
+
+      // Fast preflight: avoid uploading a photo if the daily limit is already reached.
+      // The authoritative, concurrency-safe check is made inside the transaction below.
+      const recentCount = await pool.query(
+        `SELECT COUNT(*)::integer AS count FROM reports
+         WHERE citizen_user_id = $1 AND created_at > NOW() - INTERVAL '24 hours'`,
+        [citizenUserId]
+      );
+      if (recentCount.rows[0].count >= 3) {
+        return res.status(429).json({
+          success: false,
+          code: 'DAILY_REPORT_LIMIT',
+          message: 'You can submit at most 3 complaints in a rolling 24-hour period. Please try again later.'
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Before photo was not received'
+        });
+      }
+
+      const longitudeRaw = req.body?.longitude;
+      const latitudeRaw = req.body?.latitude;
+
+      if (
+        longitudeRaw === undefined || String(longitudeRaw).trim() === '' ||
+        latitudeRaw === undefined || String(latitudeRaw).trim() === ''
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Location is required. Send longitude and latitude.'
+        });
+      }
+
+      longitude = Number(longitudeRaw);
+      latitude = Number(latitudeRaw);
+
+      if (
+        !Number.isFinite(longitude) ||
+        !Number.isFinite(latitude) ||
+        longitude < -180 || longitude > 180 ||
+        latitude < -90 || latitude > 90
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid GPS coordinates are required. Longitude must be between -180 and 180 and latitude between -90 and 90.'
+        });
+      }
+
+      if (!req.file.mimetype?.startsWith('image/')) {
+        return res.status(400).json({
+          success: false,
+          message: 'The before photo must be an image'
+        });
+      }
+
+      // Preflight the spatial lookup before uploading to Cloudinary.
+      // The provided test point (90.360769, 23.782773) should match DNCC ward 11
+      // in the supplied database output.
+      const preflightWardResult = await findWard(pool);
+      if (preflightWardResult.rowCount === 0) {
+        await logWardDiagnostic(pool);
+        return res.status(422).json({
+          success: false,
+          message: 'No supported ward contains this GPS location. Please verify the captured location and try again.'
+        });
+      }
+
+      const cloudinaryResult = await cloudinary.uploader.upload(
+        `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
+        { folder: 'hazard_reports', resource_type: 'image' }
+      );
+      const before_photo_url = cloudinaryResult.secure_url;
+      uploadedPublicId = cloudinaryResult.public_id || null;
+
+      client = await pool.connect();
+      await client.query('BEGIN');
+      transactionOpen = true;
+
+      // Re-check and lock the account inside the transaction to prevent a
+      // deleted/stale account from reaching the report INSERT.
+      const lockedUserResult = await client.query(
+        `SELECT user_id, role, is_active
+         FROM users
+         WHERE user_id = $1
+         FOR UPDATE`,
+        [citizenUserId]
+      );
+
+      if (lockedUserResult.rowCount === 0) {
+        const accountError = new Error('Citizen account no longer exists. Please log in again.');
+        accountError.statusCode = 401;
+        accountError.publicMessage = 'Your account could not be verified. Please log out and log in again.';
+        throw accountError;
+      }
+
+      if (lockedUserResult.rows[0].is_active === false) {
+        const accountError = new Error('Citizen account is inactive.');
+        accountError.statusCode = 403;
+        accountError.publicMessage = 'This account is inactive. Please contact the Master Admin.';
+        throw accountError;
+      }
+
+      if (lockedUserResult.rows[0].role !== 'Citizen') {
+        const roleError = new Error('Authenticated account is not a Citizen.');
+        roleError.statusCode = 403;
+        roleError.publicMessage = 'Only an authenticated citizen can submit a report.';
+        throw roleError;
+      }
+
+      // Serialize submissions from the same citizen using the locked user row.
+      // Count *all* submitted reports, including later-rejected ones, in the last 24 hours.
+      const quotaCheck = await client.query(
+        `SELECT COUNT(*)::integer AS count FROM reports
+         WHERE citizen_user_id = $1 AND created_at > NOW() - INTERVAL '24 hours'`,
+        [citizenUserId]
+      );
+      if (quotaCheck.rows[0].count >= 3) {
+        const limitError = new Error('Rolling 24-hour complaint limit reached.');
+        limitError.statusCode = 429;
+        limitError.code = 'DAILY_REPORT_LIMIT';
+        limitError.publicMessage = 'You can submit at most 3 complaints in a rolling 24-hour period. Please try again later.';
+        throw limitError;
+      }
+
+      // Re-run the lookup on the same transaction connection before inserting.
+      const wardResult = await findWard(client);
+      if (wardResult.rowCount === 0) {
+        await logWardDiagnostic(client);
+        const wardError = new Error('GPS point did not match any ward boundary.');
+        wardError.statusCode = 422;
+        wardError.publicMessage = 'No supported ward contains this GPS location. Please verify the captured location and try again.';
+        throw wardError;
+      }
+
+      const detectedWard = wardResult.rows[0];
+      const detectedWardId = detectedWard.ward_id;
+
+      console.log('[POST /api/reports] Ward detected:', {
+        corporation: detectedWard.corporation_code,
+        wardNumber: detectedWard.ward_number,
+        wardId: detectedWardId
+      });
+
+      const newReport = await client.query(
+        `
+        INSERT INTO reports
+          (citizen_user_id, description, location, ward_id, before_photo_url, after_photo_url, status, created_at, updated_at)
+        VALUES
+          ($1, $2, ST_SetSRID(ST_MakePoint($3::double precision, $4::double precision), 4326), $5, $6, NULL, 'Pending', NOW(), NOW())
+        RETURNING *
+        `,
+        [citizenUserId, description || null, longitude, latitude, detectedWardId, before_photo_url]
+      );
+
+      let hotspotDetection = {
+        evaluated: false,
+        reason: 'not_evaluated',
+        threshold_reached: false,
+        hotspot: null
+      };
+
+      // Hotspot detection is isolated by a savepoint. If it fails, the report
+      // can still be committed without losing the main complaint.
+      await client.query('SAVEPOINT hotspot_detection');
       try {
         hotspotDetection = await evaluateHotspotForReport(client, {
           wardId: detectedWardId,
@@ -195,11 +393,17 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
           await client.query('ROLLBACK TO SAVEPOINT hotspot_detection');
           await client.query('RELEASE SAVEPOINT hotspot_detection');
         } catch (savepointError) {
-          console.error('Could not recover from hotspot detection error:', savepointError.message);
+          console.error(
+            '[POST /api/reports] Could not recover from hotspot detection error:',
+            getErrorMessage(savepointError)
+          );
           throw savepointError;
         }
 
-        console.error('Hotspot detection failed; complaint will still be saved:', hotspotError.message);
+        console.error(
+          '[POST /api/reports] Hotspot detection failed; report will still be saved:',
+          getErrorMessage(hotspotError)
+        );
         hotspotDetection = {
           evaluated: false,
           reason: 'detection_unavailable',
@@ -207,38 +411,121 @@ router.post('/', upload.single('before_photo'), async (req, res) => {
           hotspot: null
         };
       }
-    }
 
-    await client.query('COMMIT');
-    transactionOpen = false;
+      await client.query('COMMIT');
+      transactionOpen = false;
+      reportCommitted = true;
 
-    return res.status(201).json({
-      success: true,
-      message: 'Report created successfully',
-      data: newReport.rows[0],
-      hotspot_detection: hotspotDetection
-    });
-  } catch (error) {
-    if (client && transactionOpen) {
-      try {
-        await client.query('ROLLBACK');
-      } catch (rollbackError) {
-        console.error('Report transaction rollback failed:', rollbackError.message);
+      client.release();
+      client = null;
+
+      let magistrateAlert = null;
+      if (hotspotDetection.created === true && hotspotDetection.hotspot?.hotspot_id) {
+        try {
+          const alertResult = await createAndSendMagistrateAlert(
+            hotspotDetection.hotspot.hotspot_id
+          );
+          magistrateAlert = {
+            status: alertResult.status,
+            delivery_channel: alertResult.delivery_channel || null,
+            expires_at: alertResult.expires_at || null,
+            reason: alertResult.reason || null
+          };
+        } catch (alertError) {
+          // Notification failure must never undo a successfully saved report.
+          console.error(
+            '[POST /api/reports] Magistrate escalation failed after report commit:',
+            getErrorMessage(alertError)
+          );
+          magistrateAlert = {
+            status: 'failed',
+            delivery_channel: null,
+            expires_at: null,
+            reason: 'escalation_unavailable'
+          };
+        }
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: 'Report created successfully',
+        data: newReport.rows[0],
+        hotspot_detection: hotspotDetection,
+        magistrate_alert: magistrateAlert
+      });
+    } catch (error) {
+      if (client && transactionOpen) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          console.error(
+            '[POST /api/reports] Transaction rollback failed:',
+            rollbackError?.message || String(rollbackError)
+          );
+        }
+        transactionOpen = false;
+      }
+
+      const errorDetails = {
+        message: getErrorMessage(error),
+        code: error?.code,
+        detail: error?.detail,
+        constraint: error?.constraint,
+        table: error?.table,
+        column: error?.column,
+        userId: citizenUserId
+      };
+      if (process.env.NODE_ENV !== 'production') {
+        errorDetails.longitude = longitude;
+        errorDetails.latitude = latitude;
+        errorDetails.stack = error?.stack;
+      }
+      console.error('[POST /api/reports] Report creation failed:', errorDetails);
+
+      if (uploadedPublicId && !reportCommitted) {
+        try {
+          await cloudinary.uploader.destroy(uploadedPublicId, { resource_type: 'image' });
+        } catch (cleanupError) {
+          console.error(
+            '[POST /api/reports] Could not clean up unused Cloudinary image:',
+            getErrorMessage(cleanupError)
+          );
+        }
+      }
+
+      if (error?.statusCode) {
+        return res.status(error.statusCode).json({
+          success: false,
+          ...(error.code === 'DAILY_REPORT_LIMIT' ? { code: error.code } : {}),
+          message: error.publicMessage || 'Report submission could not be completed.'
+        });
+      }
+
+      if (error?.code === '23503' && error?.constraint === 'reports_citizen_user_id_fkey') {
+        return res.status(401).json({
+          success: false,
+          message: 'Your account could not be verified. Please log out and log in again.'
+        });
+      }
+
+      if (error?.code === '23503' && error?.constraint === 'reports_ward_id_fkey') {
+        return res.status(422).json({
+          success: false,
+          message: 'The detected ward is no longer available. Please retry the report.'
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: "Couldn't save report. Please try again."
+      });
+    } finally {
+      if (client) {
+        client.release();
       }
     }
-
-    console.error('Report creation error:', error.message);
-    return res.status(500).json({
-      success: false,
-      message: "Couldn't save report"
-    });
-  } finally {
-    if (client) {
-      client.release();
-    }
   }
-});
-
+);
 
 router.get(
   '/councillor',
@@ -252,10 +539,12 @@ router.get(
           r.*,
           ST_Y(r.location) AS latitude,
           ST_X(r.location) AS longitude,
-          w.ward_number, w.corporation_code
+          w.ward_number, w.corporation_code,
+          ROUND(ST_Distance(r.location::geography, r.cleanup_location::geography)::numeric, 1) AS cleanup_distance_meters
         FROM reports r
         JOIN wards w ON w.ward_id = r.ward_id
         WHERE ( $1 = 'Master Admin' OR w.councillor_id = $2 )
+          AND r.status <> 'Rejected'
         ORDER BY r.created_at DESC
         `,
         [req.user.role, req.user.user_id]
@@ -277,10 +566,67 @@ router.get(
   }
 );
 
+// Councillor rejection: soft status change; preserve the report for citizen history/audit.
+// This is NOT the existing cleanup-verification rejection / reassignment workflow.
+router.patch(
+  '/:id/reject',
+  verify,
+  authorization('Councillor'),
+  async (req, res) => {
+    const reportId = Number(req.params.id);
+    if (!Number.isSafeInteger(reportId) || reportId <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid complaint ID.' });
+    }
+
+    const note = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const allowedReasons = ['Duplicate', 'Fake', 'Vague', 'Not a breeding site', 'Outside ward', 'Other'];
+    const category = allowedReasons.find((reason) => note === reason || note.startsWith(`${reason}: `));
+    if (!note || note.length > 500 || !category || (category === 'Other' && note.replace(/^Other:\s*/, '').trim().length === 0)) {
+      return res.status(400).json({ success: false, message: 'A valid rejection reason is required: Duplicate, Fake, Vague, Not a breeding site, Outside ward, or Other (with explanation). Maximum 500 characters.' });
+    }
+
+    try {
+      // Only a councillor for this ward may reject an unassigned complaint.
+      // Already assigned/verified tasks cannot be discarded by this action.
+      const result = await pool.query(
+        `UPDATE reports AS r
+         SET status = 'Rejected',
+             councillor_note = $3,
+             updated_at = NOW()
+         WHERE r.report_id = $1
+           AND r.status IN ('Pending', 'Re-assigned')
+           AND EXISTS (
+             SELECT 1 FROM wards w
+             WHERE w.ward_id = r.ward_id AND w.councillor_id = $2
+           )
+         RETURNING r.report_id, r.status, r.updated_at`,
+        [reportId, req.user.user_id, note]
+      );
+      if (result.rowCount === 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Complaint cannot be rejected. It may be assigned, resolved, already rejected, or outside your ward.'
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        message: 'Complaint rejected. The citizen can see its Rejected status.',
+        data: result.rows[0]
+      });
+    } catch (error) {
+      console.error('Complaint rejection failed:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Could not reject complaint. Check the database migration and try again.'
+      });
+    }
+  }
+);
+
 router.get(
   '/:id',
   verify,
-  authorization('Councillor', 'Inspector'),
+  authorization('Councillor', 'Inspector','Master Admin'),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -289,7 +635,7 @@ router.get(
         `
       SELECT
         r.*,
-
+        
         -- Citizen complaint location
         ST_Y(r.location) AS latitude,
         ST_X(r.location) AS longitude,
@@ -361,6 +707,10 @@ router.patch( '/:id', verify, authorization('Inspector'), upload.single('after_p
 
       const latitude = Number(req.body.latitude);
       const longitude = Number(req.body.longitude);
+      const inspectorComment = typeof req.body.inspector_comment === 'string' ? req.body.inspector_comment.trim() : '';
+      if (inspectorComment.length > 1000) {
+        return res.status(400).json({ success: false, message: 'Inspector comment cannot exceed 1000 characters.' });
+      }
 
       // 1. After-photo is required
       if (!req.file) {
@@ -440,6 +790,7 @@ router.patch( '/:id', verify, authorization('Inspector'), upload.single('after_p
             4326
           ),
           cleanup_submitted_at = NOW(),
+          inspector_comment = $6,
           status = 'Pending Verification',
           updated_at = NOW()
         WHERE report_id = $4
@@ -452,7 +803,8 @@ router.patch( '/:id', verify, authorization('Inspector'), upload.single('after_p
           longitude,
           latitude,
           id,
-          inspectorId
+          inspectorId,
+          inspectorComment || null
         ]
       );
 
@@ -481,7 +833,7 @@ router.patch( '/:id', verify, authorization('Inspector'), upload.single('after_p
 );
 
 router.patch(
-  '/:id/assign', verify, authorization('Councillor'),
+  '/:id/assign', verify, authorization('Councillor','Master Admin'),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -499,9 +851,9 @@ router.patch(
       const inspector = await pool.query(
           `
           SELECT u.user_id FROM users u
-          JOIN wards w ON w.ward_id = u.ward_id WHERE u.user_id = $1 AND u.role = 'Inspector' AND w.councillor_id = $2
+          JOIN wards w ON w.ward_id = u.ward_id WHERE u.user_id = $1 AND u.role = 'Inspector' AND u.is_active = TRUE AND ($3 = 'Master Admin' OR w.councillor_id = $2)
           `,
-          [inspector_id, req.user.user_id]
+          [inspector_id, req.user.user_id, req.user.role]
       );
 
 
@@ -520,18 +872,19 @@ router.patch(
           assigned_inspector_id = $1, status = 'Assigned', updated_at = NOW()
         WHERE r.report_id = $2
           AND r.status IN ('Pending', 'Re-assigned')
-          AND EXISTS (
-            SELECT 1 
-            FROM wards w
-            WHERE w.ward_id = r.ward_id
-              AND w.councillor_id = $3
+        AND (
+          $4 = 'Master Admin'
+          OR EXISTS (
+            SELECT 1 FROM wards w WHERE w.ward_id = r.ward_id AND w.councillor_id = $3
           )
+        )
         RETURNING r.*
         `,
         [
           inspector_id,
           id,
-          req.user.user_id
+          req.user.user_id,
+          req.user.role
         ]
       );
 
