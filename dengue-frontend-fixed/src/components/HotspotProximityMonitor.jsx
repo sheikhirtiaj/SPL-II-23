@@ -40,6 +40,55 @@ export default function HotspotProximityMonitor() {
   const lastCheckRef = useRef(null);
   const insideHotspotsRef = useRef(new Set());
   const mountedRef = useRef(true);
+  const audioContextRef = useRef(null);
+
+  // Create/resume audio only after the user clicks the location-alert button.
+  // Browsers commonly block sound that starts without a user gesture.
+  const prepareAlertAudio = useCallback(() => {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextClass();
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
+      }
+    } catch (error) {
+      // Sound is optional; the visual alert must still work.
+    }
+  }, []);
+
+  const playHotspotAlertSound = useCallback(() => {
+    const audioContext = audioContextRef.current;
+    if (!audioContext || audioContext.state !== 'running') return;
+
+    try {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const startAt = audioContext.currentTime;
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, startAt);
+      oscillator.frequency.setValueAtTime(660, startAt + 0.16);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.18, startAt + 0.025);
+      gain.gain.setValueAtTime(0.18, startAt + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.34);
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + 0.35);
+      oscillator.onended = () => {
+        oscillator.disconnect();
+        gain.disconnect();
+      };
+    } catch (error) {
+      // Sound is optional; the visual alert must still work.
+    }
+  }, []);
 
   const stopTracking = useCallback(() => {
     if (watchIdRef.current !== null && 'geolocation' in navigator) {
@@ -109,6 +158,7 @@ export default function HotspotProximityMonitor() {
           text: `Please be careful about mosquito bites. You are within ${radius} metres of an active dengue hotspot (${hotspotLabel(newlyEntered)}).`,
         };
         if (mountedRef.current) setAlertInfo(nextAlert);
+        playHotspotAlertSound();
         await sendSystemNotification(newlyEntered, radius);
       } else if (!nearby.length && mountedRef.current) {
         const radius = Number(response.data?.radius_meters) || 200;
@@ -119,9 +169,11 @@ export default function HotspotProximityMonitor() {
         setMessage(error.response?.data?.message || 'Could not check nearby hotspots. Location monitoring will retry as you move.');
       }
     }
-  }, [sendSystemNotification]);
+  }, [playHotspotAlertSound, sendSystemNotification]);
 
   const startTracking = useCallback(async (requestPermissions = true) => {
+    if (requestPermissions) prepareAlertAudio();
+
     if (!('geolocation' in navigator)) {
       setMessage('This browser does not support live location. Try a modern mobile browser.');
       return;
@@ -159,7 +211,7 @@ export default function HotspotProximityMonitor() {
       },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
     );
-  }, [checkNearbyHotspots]);
+  }, [checkNearbyHotspots, prepareAlertAudio]);
 
   useEffect(() => {
     mountedRef.current = true;
