@@ -536,6 +536,4 @@ router.post('/create-staff', verify, authorization('Master Admin'), async (req, 
 });
 
 
-// bcrypt.hash("123456", 12).then(console.log);
-
 module.exports = router;

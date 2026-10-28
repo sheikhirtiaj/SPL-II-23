@@ -18,7 +18,6 @@ function readPositiveInteger(name, fallback, minimum = 1) {
 
 function getHotspotConfig() {
   return {
-    // Initial development defaults. Override these in .env for project tuning.
     minimumComplaints: readPositiveInteger('HOTSPOT_MIN_COMPLAINTS', 5, 2),
     detectionRadiusMeters: readPositiveInteger(
       'HOTSPOT_DETECTION_RADIUS_METERS',
