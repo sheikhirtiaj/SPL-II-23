@@ -52,7 +52,7 @@ app.get('/api/test-db', async(req,res) => {
 const path = require('path');
 
 const frontendBuild = path.join(
-  __dirname, '..', 'dengue-frontend-fixed-c3', 'build'
+  __dirname, '..', 'frontend', 'build'
 );
 
 // Do not cache or leak one-time email verification tokens in referrers.

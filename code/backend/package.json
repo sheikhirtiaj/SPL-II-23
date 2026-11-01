@@ -2,9 +2,10 @@
   "name": "spl-ii-23",
   "version": "1.0.0",
   "description": "dengue-alert-system",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "start": "node server.js"
   },
   "repository": {
     "type": "git",
@@ -26,10 +27,10 @@
     "ejs": "^5.0.2",
     "express": "^5.2.1",
     "firebase-admin": "^14.5.0",
+    "google-auth-library": "^11.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "nodemailer": "^10.1.2",
-    "pg": "^8.23.0",
-    "google-auth-library": "^11.1.0"
+    "pg": "^8.23.0"
   }
 }
